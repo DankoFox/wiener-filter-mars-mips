@@ -115,4 +115,4 @@ Example:
 0.002310
 ```
 
-![troll](https://scontent.fsgn5-15.fna.fbcdn.net/v/t39.30808-1/541528486_3987213001590708_6150294427196741489_n.jpg?stp=dst-jpg_s200x200_tt6&_nc_cat=111&ccb=1-7&_nc_sid=e99d92&_nc_eui2=AeF803EYzXWATKcC13o1mIIqEtM4bEUR298S0zhsRRHb3w1CIA8AzPJiUXTANHUY3JA1zC1Qk7ya_F5hG6ZdsB6m&_nc_ohc=PjgNXG1JA2sQ7kNvwG29Wkk&_nc_oc=AdntknupfpvLpDAJJrmiKFyQYb1KSPQwvITikwGoiKwmQIE4xIzXrwd9KigVdvnuD2548EAnijSPWd1Cbe7yfxjg&_nc_zt=24&_nc_ht=scontent.fsgn5-15.fna&_nc_gid=ONPQy2FxgsQBm2VuBL8Zrw&oh=00_AfiJFDt-q-C3Mhveu5DaUqi_K5NC_Zx1UiG8MQcigveydQ&oe=690FAF3D)
+![troll](https://scontent.fsgn5-5.fna.fbcdn.net/v/t39.30808-6/481148404_2120531655076172_5403178123874385227_n.jpg?_nc_cat=100&ccb=1-7&_nc_sid=a5f93a&_nc_eui2=AeHMX-orpYUezFYxD1iRGjDXxwb7GxJcvBLHBvsbEly8Ei2RpeqjDpX2qZS3nW2ujiJxBGCv20w45tjy5mflDzxh&_nc_ohc=0Oj1qjsKQqEQ7kNvwFsHAQP&_nc_oc=AdnxmDkv8rtRbVBorgYXPrZrUjV1e3WR7y-3jNTo7UxXFaoz53dmdznENdBZ_9XwIKcfsCYhgqKxPzDR_eFpiLBC&_nc_zt=23&_nc_ht=scontent.fsgn5-5.fna&_nc_gid=gnLe6CMk_VcZy9aMJ-8ukA&oh=00_AfjrlLT_qtIVpgHLGeu13dxFcj17yJGvmzWLHQpJvpn4sg&oe=690FBA6C)
