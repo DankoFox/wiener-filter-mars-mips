@@ -95,6 +95,8 @@ move $a1, $s1         # M
 la   $a2, R           # R base (output)
 jal  build_R_from_gamma_xx
 
+# === DEBUGGING ============================================
+
 # [DEBUG]: print gamma_xx array
 la $a0, gamma_xx
 
@@ -148,7 +150,7 @@ estimate_correlation:
 # -> autocorrelation -> use gamma_xx else gamma_dx (cross-correlation)
 bne $a0, $a1, not_same_addresses
 la  $t8, gamma_xx
-j   common_case        # Jump to the common part of the function
+j   common_case
 
 not_same_addresses:
 	la $t8, gamma_dx
@@ -255,32 +257,32 @@ build_R_inner:
 	bge $t1, $s1, build_R_next_l  # if k >= M -> next l
 
 # compute lag = l - k
-sub $t6, $t0, $t1
-abs $t6, $t6
+sub $t2, $t0, $t1
+abs $t2, $t2
 
 # if lag < gamma_len load gamma_xx[lag], else use 0.0
-blt $t6, $s1, build_R_load_gamma
+blt $t2, $s1, build_R_load_gamma
 
 # load 0.0
-la  $t9, zero_float
-l.s $f0, 0($t9)
+la  $t3, zero_float
+l.s $f0, 0($t3)
 j   build_R_store
 
 build_R_load_gamma:
-	sll  $t7, $t6, 2        # byte offset = lag * 4
-	add  $t8, $s0, $t7
-	lwc1 $f0, 0($t8)
+	sll  $t3, $t2, 2        # byte offset = lag * 4
+	add  $t3, $s0, $t3
+	lwc1 $f0, 0($t3)
 
 build_R_store:
 
 # compute index = l * M + k
-mul  $t7, $t0, $s1     # t7 = l * M
-addu $t7, $t7, $t1    # t7 += k
+mul  $t3, $t0, $s1     # t7 = l * M
+addu $t3, $t3, $t1    # t7 += k
 
-sll $t7, $t7, 2      # byte offset = index * 4
-add $t7, $s2, $t7
+sll $t3, $t3, 2      # byte offset = index * 4
+add $t3, $s2, $t3
 
-swc1 $f0, 0($t7)
+swc1 $f0, 0($t3)
 
 addi $t1, $t1, 1
 j    build_R_inner
