@@ -18,7 +18,7 @@ N_word:    .word 10             # Number of samples (N)
 M_word:    .word 7              # Filter length (M)
 
 # --------------------------------------------------------------------------------------------------
-# [DEMO SIGNALS]
+# [SIGNALS]
 # --------------------------------------------------------------------------------------------------
 input_sig: .float 99.5, -1.2, 10.4, 1.2, 2434.5, 11.5, -0.5, 67.0, -1.5, 1.2
 
@@ -31,10 +31,11 @@ desired:
 gamma_xx:  .float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0    # Autocorrelation results (length M)
 gamma_dx:  .float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0   # Cross-correlation (future use)
 
-# 49 (MxM = 7x7) Toeplitz matrix
-R:
-	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+R_matrix: .space 196  # R_matrix: 49 float (MxM = 7x7) Toeplitz matrix
+
+# [Cholesky Solver Buffers] ------------------------------------------------------------------------
+L_matrix:      .space 196        # lower-triangular matrix L
+y_vector:      .float 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
 
 hopt:
 	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -90,11 +91,15 @@ move $a3, $s1             # maxlag
 
 jal estimate_correlation
 
-# Build R from gamma_xx
+# Build R_matrix from gamma_xx
 la   $a0, gamma_xx    # gamma_xx base
 move $a1, $s1         # M
-la   $a2, R           # R base (output)
+la   $a2, R_matrix           # R_matrix base (output)
 jal  build_R_from_gamma_xx
+
+# Solve R h = γd using Cholesky factorization
+move $a0, $s1
+jal  compute_hopt
 
 # === DEBUGGING ============================================
 
@@ -110,11 +115,17 @@ la $a0, gamma_dx
 move $a1, $s1
 jal  print_float_array
 
-# [DEBUG]: print R as M*M floats for debug:
-la $a0, R
+# [DEBUG]: print R_matrix as M*M floats for debug:
+la $a0, R_matrix
 
 mul $a1, $s1, $s1    # a1 = M * M  (pseudo-instr; MARS supports this)
 jal print_float_array
+
+# [DEBUG]: print hopt matrix
+la $a0, hopt
+
+move $a1, $s1
+jal  print_float_array
 
 # === OWARI ============================================
 # Exit
@@ -125,21 +136,23 @@ syscall
 # = [2] CORE FUNCTIONS
 # =====================================================================================================================================
 
-# ---------------------------------------------------------
-# estimate_correlation
+# -------------------------------------------------------------------------------------
+# FUNCTION: estimate_correlation
+# -------------------------------------------------------------------------------------
+# PURPOSE:
+# Compute correlation sequence γ_xy[k] = (1/N) * Σ_n (x[n] * y[n−k]).
+# Used for both autocorrelation (x=x) and cross-correlation (x≠y).
 #
-# Computes:
-# gamma_xy[k] = (1/N) * Σ (x[n] * y[n-k])
+# INPUT:
+# $a0 = base address of x[n]
+# $a1 = base address of y[n]
+# $a2 = N                # Signal length
+# $a3 = maxlag (M)
 #
-# Inputs:
-# a0 = base address of x[n]   (float array)
-# a1 = base address of y[n]   (float array) (same as x[n] for autocorrelation)
-# a2 = N                      (int)
-# a3 = maxlag                 (int)
-#
-# Output:
-# gamma_xy(l) array stored in gamma_xx or gamma_dx (depends on usage)
-# ---------------------------------------------------------
+# OUTPUT:
+# Stores result in either gamma_xx (if x==y) or gamma_dx (if x!=y)
+# -------------------------------------------------------------------------------------
+
 estimate_correlation:
 	addi $sp, $sp, -16          # Save registers
 	sw   $ra, 12($sp)
@@ -168,8 +181,7 @@ correlation_outer_loop:
 	bge $t0, $s3, correlation_done   # If l >= M, finish
 
 # init $f0 = 0.0 (outer_loop accumulator)
-la  $t2, zero_float
-l.s $f0, 0($t2)
+mtc1 $zero, $f0
 
 li $t1, 0          # n = 0 (inner loop)
 
@@ -224,18 +236,22 @@ correlation_done:
 	addi $sp, $sp, 16
 	jr   $ra
 
-# ---------------------------------------------------------
-# build_R_from_gamma_xx
+# -------------------------------------------------------------------------------------
+# FUNCTION: build_R_from_gamma_xx
+# -------------------------------------------------------------------------------------
+# PURPOSE:
+# Build an M×M Toeplitz autocorrelation matrix R, where
+# R[l, k] = γ_xx(|l − k|)
+#
+# INPUT:
+# $a0 = base of γ_xx array (float[M])
+# $a1 = M (matrix dimension)
+# $a2 = base of R_matrix (float[M×M])  # output
+#
+# OUTPUT:
+# Populates R_matrix[] in row-major order.
+# -------------------------------------------------------------------------------------
 
-# Builds MxM Toeplitz matrix R from gamma_xx array.
-
-# Inputs:
-# a0 = base of gamma_xx (float)
-# a1 = M (int)
-# a2 = base of R (float)   <-- output (row-major)
-
-# Save results to R
-# ---------------------------------------------------------
 build_R_from_gamma_xx:
 	addi $sp, $sp, -16
 	sw   $ra, 0($sp)
@@ -245,7 +261,7 @@ build_R_from_gamma_xx:
 
 	move $s0, $a0       # s0 = gamma_xx base
 	move $s1, $a1       # s1 = M
-	move $s2, $a2       # s2 = R base
+	move $s2, $a2       # s2 = R_matrix base
 
 	li $t0, 0         # l = 0
 
@@ -265,9 +281,8 @@ abs $t2, $t2
 blt $t2, $s1, build_R_load_gamma
 
 # load 0.0
-la  $t3, zero_float
-l.s $f0, 0($t3)
-j   build_R_store
+mtc1 $zero, $f0
+j    build_R_store
 
 build_R_load_gamma:
 	sll  $t3, $t2, 2        # byte offset = lag * 4
@@ -298,6 +313,277 @@ build_R_done:
 	lw   $s1, 8($sp)
 	lw   $s2, 12($sp)
 	addi $sp, $sp, 16
+	jr   $ra
+
+# -------------------------------------------------------------------------------------
+# FUNCTION: compute_hopt
+# -------------------------------------------------------------------------------------
+# PURPOSE:
+# Solve the linear system R h = γ_d, where R is symmetric positive-definite.
+# Implements the solution using Cholesky factorization and substitution:
+#
+# (1) Factorization:        R = L * L^T
+# (2) Forward substitution: L * y = γ_d
+# (3) Backward substitution: L^T * h = y
+#
+# This routine is a direct translation of the Python reference implementation
+# `compute_hopt(R, b)` using Cholesky decomposition.
+#
+# INPUT:
+# $a0 = n                  # Matrix dimension (M)
+#
+# GLOBALS USED:
+# R_matrix   - Input correlation matrix (float[M][M])
+# gamma_dx   - Right-hand vector γ_d (float[M])
+# L_matrix   - Workspace for Cholesky lower triangle (float[M][M])
+# y_vector   - Workspace for forward substitution (float[M])
+# hopt       - Output vector h (float[M])
+#
+# OUTPUT:
+# hopt[] = Solution vector for R * h = γ_d
+#
+# RETURN:
+# None
+# -------------------------------------------------------------------------------------
+
+compute_hopt:
+	addi $sp, $sp, -8
+	sw   $ra, 4($sp)
+	sw   $s0, 0($sp)
+
+	move $s0, $a0 # n
+
+# ------------------------------------------------------------------
+# Step 1: Compute Cholesky factor L (R = L * L^T)
+# ------------------------------------------------------------------
+li $t0, 0 # i = 0
+
+chol_outer_i:
+	bge $t0, $s0, chol_done
+	li  $t1, 0  # j = 0
+
+chol_inner_j:
+	bgt $t1, $t0, chol_next_i
+
+# Compute sum s = Σ_{k=0}^{j-1} L[i, k] * L[j, k]
+li   $t2, 0     # k = 0
+mtc1 $zero, $f4 # s = 0
+
+chol_sum_k:
+	bge $t2, $t1, chol_sum_end
+
+# load L[i, k] and L[j, k]
+mul $t3, $t0, $s0
+add $t3, $t3, $t2
+sll $t3, $t3, 2
+la  $t4, L_matrix
+add $t3, $t3, $t4
+l.s $f6, 0($t3)
+
+mul $t3, $t1, $s0
+add $t3, $t3, $t2
+sll $t3, $t3, 2
+add $t3, $t3, $t4
+l.s $f8, 0($t3)
+
+mul.s $f10, $f6, $f8
+add.s $f4, $f4, $f10
+
+addi $t2, $t2, 1
+j    chol_sum_k
+
+chol_sum_end:
+
+# --- if i == j: diagonal element
+bne $t0, $t1, chol_offdiag
+
+# val = R[i, i] - s
+mul $t3, $t0, $s0
+add $t3, $t3, $t1
+sll $t3, $t3, 2
+
+la  $t4, R_matrix
+add $t3, $t3, $t4 # R[i, j]
+
+l.s $f12, 0($t3)
+
+sub.s  $f12, $f12, $f4
+sqrt.s $f12, $f12
+
+# store L[i, j] = val
+mul $t3, $t0, $s0
+add $t3, $t3, $t1
+sll $t3, $t3, 2
+la  $t8, L_matrix
+add $t3, $t3, $t8
+s.s $f12, 0($t3)
+j   chol_next_j
+
+chol_offdiag:
+# L[i, j] = (R[i, j] - s) / L[j, j]
+mul $t3, $t0, $s0
+add $t3, $t3, $t1
+sll $t3, $t3, 2
+
+la  $t4, R_matrix
+add $t3, $t3, $t4
+l.s $f14, 0($t3) # Value of R[i, j]
+
+sub.s $f14, $f14, $f4
+
+# load L[j, j]
+mul $t3, $t1, $s0
+add $t3, $t3, $t1
+sll $t3, $t3, 2
+la  $t4, L_matrix
+add $t3, $t3, $t4
+l.s $f16, 0($t3)
+
+div.s $f14, $f14, $f16
+
+# store L[i, j]
+mul $t3, $t0, $s0
+add $t3, $t3, $t1
+sll $t3, $t3, 2
+add $t3, $t3, $t4
+s.s $f14, 0($t3)
+
+chol_next_j:
+	addi $t1, $t1, 1
+	j    chol_inner_j
+
+chol_next_i:
+	addi $t0, $t0, 1
+	j    chol_outer_i
+
+chol_done:
+
+# ------------------------------------------------------------------
+# Step 2: Forward substitution  (L y = b)
+# ------------------------------------------------------------------
+li $t0, 0
+
+forw_i:
+	bge  $t0, $s0, back_subst
+	mtc1 $zero, $f4
+	li   $t1, 0
+
+forw_k:
+	bge $t1, $t0, forw_sum_done
+
+# s += L[i, k] * y[k]
+mul $t2, $t0, $s0
+add $t2, $t2, $t1
+sll $t2, $t2, 2
+la  $t3, L_matrix
+add $t2, $t2, $t3
+l.s $f6, 0($t2)
+
+sll $t2, $t1, 2
+
+la  $t3, y_vector
+add $t2, $t2, $t3
+l.s $f8, 0($t2)
+
+mul.s $f10, $f6, $f8
+add.s $f4, $f4, $f10
+
+addi $t1, $t1, 1
+j    forw_k
+
+forw_sum_done:
+	sll $t2, $t0, 2
+	la  $t3, gamma_dx
+	add $t2, $t2, $t3
+	l.s $f12, 0($t2)  # gamma_xx[i]
+
+	sub.s $f12, $f12, $f4 # gamma_xx[i] - s
+
+# divide by L[i, i]
+mul $t3, $t0, $s0
+add $t3, $t3, $t0
+
+sll $t3, $t3, 2
+la  $t4, L_matrix
+add $t3, $t3, $t4
+l.s $f14, 0($t3) # L[i, i]
+
+div.s $f12, $f12, $f14
+
+la  $t3, y_vector
+sll $t4, $t0, 2
+add $t3, $t3, $t4
+s.s $f12, 0($t3)
+
+addi $t0, $t0, 1
+j    forw_i
+
+# ------------------------------------------------------------------
+# Step 3: Backward substitution  (L^T h = y)
+# ------------------------------------------------------------------
+back_subst:
+	addi $t0, $s0, -1 # $t0 <- i
+
+back_i:
+	blt  $t0, $zero, chol_return
+	mtc1 $zero, $f4
+
+	addi $t1, $t0, 1  # $t1 <- k
+
+back_k:
+	bge $t1, $s0, back_sum_done
+
+	mul $t2, $t1, $s0
+	add $t2, $t2, $t0
+	sll $t2, $t2, 2 # calculate inex of L[k, i]
+
+	la  $t3, L_matrix
+	add $t2, $t2, $t3
+	l.s $f6, 0($t2) # Value of L[k, i]
+
+	sll $t2, $t1, 2
+	la  $t3, hopt
+	add $t2, $t3, $t2
+	l.s $f8, 0($t2) # Value of hopt[k]
+
+	mul.s $f10, $f6, $f8
+	add.s $f4, $f4, $f10 # s += L[k, i] * hopt[k]
+
+	addi $t1, $t1, 1
+	j    back_k
+
+back_sum_done:
+	sll $t2, $t0, 2
+	la  $t3, y_vector
+	add $t2, $t2, $t3
+	l.s $f12, 0($t2) # Value of y[i]
+
+	sub.s $f12, $f12, $f4 # y[i] - s
+
+# divide by L[i, i]
+mul $t2, $t0, $s0
+add $t2, $t2, $t0
+sll $t2, $t2, 2
+
+la  $t3, L_matrix
+add $t2, $t2, $t3
+l.s $f14, 0($t2) # Value of L[i, i]
+
+div.s $f12, $f12, $f14 # (y[i] - s) / L[i, i]
+
+sll $t2, $t0, 2
+la  $t3, hopt
+add $t2, $t3, $t2 # address of x[i]
+
+s.s $f12, 0($t2) # Load (y[i] - s) / L[i, i] --------> x[i]
+
+addi $t0, $t0, -1
+j    back_i
+
+chol_return:
+	lw   $ra, 4($sp)
+	lw   $s0, 0($sp)
+	addi $sp, $sp, 8
 	jr   $ra
 
 # =====================================================================================================================================
