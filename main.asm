@@ -35,7 +35,7 @@ R_matrix: .space 196  # R_matrix: 49 float (MxM = 7x7) Toeplitz matrix
 
 # [Cholesky Solver Buffers] ------------------------------------------------------------------------
 L_matrix:      .space 196        # lower-triangular matrix L
-y_vector:      .float 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+temp_vector:      .float 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
 
 hopt:
 	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -101,6 +101,11 @@ jal  build_R_from_gamma_xx
 move $a0, $s1
 jal  compute_hopt
 
+# Filter input using hopt
+move $a0, $s0
+move $a1, $s1
+jal  filter_signal
+
 # === DEBUGGING ============================================
 
 # [DEBUG]: print gamma_xx array
@@ -125,6 +130,12 @@ jal print_float_array
 la $a0, hopt
 
 move $a1, $s1
+jal  print_float_array
+
+# [DEBUG]: filtered output
+la $a0, y_out
+
+move $a1, $s0
 jal  print_float_array
 
 # === OWARI ============================================
@@ -336,7 +347,7 @@ build_R_done:
 # R_matrix   - Input correlation matrix (float[M][M])
 # gamma_dx   - Right-hand vector γ_d (float[M])
 # L_matrix   - Workspace for Cholesky lower triangle (float[M][M])
-# y_vector   - Workspace for forward substitution (float[M])
+# temp_vector - Workspace for forward substitution (float[M])
 # hopt       - Output vector h (float[M])
 #
 # OUTPUT:
@@ -471,7 +482,7 @@ forw_i:
 forw_k:
 	bge $t1, $t0, forw_sum_done
 
-# s += L[i, k] * y[k]
+# s += L[i, k] * temp[k]
 mul $t2, $t0, $s0
 add $t2, $t2, $t1
 sll $t2, $t2, 2
@@ -481,7 +492,7 @@ l.s $f6, 0($t2)
 
 sll $t2, $t1, 2
 
-la  $t3, y_vector
+la  $t3, temp_vector
 add $t2, $t2, $t3
 l.s $f8, 0($t2)
 
@@ -510,7 +521,7 @@ l.s $f14, 0($t3) # L[i, i]
 
 div.s $f12, $f12, $f14
 
-la  $t3, y_vector
+la  $t3, temp_vector
 sll $t4, $t0, 2
 add $t3, $t3, $t4
 s.s $f12, 0($t3)
@@ -554,11 +565,11 @@ back_k:
 
 back_sum_done:
 	sll $t2, $t0, 2
-	la  $t3, y_vector
+	la  $t3, temp_vector
 	add $t2, $t2, $t3
-	l.s $f12, 0($t2) # Value of y[i]
+	l.s $f12, 0($t2) # Value of temp[i]
 
-	sub.s $f12, $f12, $f4 # y[i] - s
+	sub.s $f12, $f12, $f4 # temp[i] - s
 
 # divide by L[i, i]
 mul $t2, $t0, $s0
@@ -569,13 +580,13 @@ la  $t3, L_matrix
 add $t2, $t2, $t3
 l.s $f14, 0($t2) # Value of L[i, i]
 
-div.s $f12, $f12, $f14 # (y[i] - s) / L[i, i]
+div.s $f12, $f12, $f14 # (temp[i] - s) / L[i, i]
 
 sll $t2, $t0, 2
 la  $t3, hopt
 add $t2, $t3, $t2 # address of x[i]
 
-s.s $f12, 0($t2) # Load (y[i] - s) / L[i, i] --------> x[i]
+s.s $f12, 0($t2) # Load (temp[i] - s) / L[i, i] --------> x[i]
 
 addi $t0, $t0, -1
 j    back_i
@@ -584,6 +595,81 @@ chol_return:
 	lw   $ra, 4($sp)
 	lw   $s0, 0($sp)
 	addi $sp, $sp, 8
+	jr   $ra
+
+# =====================================================================
+# FUNCTION : filter_signal
+# PURPOSE  : Apply FIR filter h[k] (hopt) to input x[n] (input) with zero-padding.
+# FORMULA  : y[n] = sum_{k=0..M-1} h[k] * x[n - k], with x[idx<0]=0
+# ARGUMENTS:
+# $a0 = N (length of x)
+# $a1 = M (length of h)
+# RETURNS:
+# Writes y[n] (float) to y_array
+# =====================================================================
+filter_signal:
+	addi $sp, $sp, -16         # allocate stack frame
+	sw   $ra, 12($sp)
+	sw   $s0, 8($sp)
+	sw   $s1, 4($sp)
+	sw   $s2, 0($sp)
+
+	la   $t0, input_sig     # base address of x (input)
+	la   $t1, hopt        # base address of h (filter)
+	la   $t2, y_out     # base address of y (output)
+	move $s0, $zero            # n = 0
+
+loop_n:
+	bge $s0, $a0, filter_done  # if n >= N: done
+
+# s = 0.0
+mtc1 $zero, $f0
+
+move $s1, $zero            # k = 0
+
+loop_k:
+	bge $s1, $a1, store_y      # if k >= M: go store y[n]
+
+# idx = n - k
+sub $s2, $s0, $s1
+
+# skipping
+bltz $s2, skip_k           # skip if idx < 0
+bge  $s2, $a0, skip_k       # skip if idx >= N
+
+# Load h[k]
+mul $t3, $s1, 4
+add $t3, $t1, $t3
+l.s $f2, 0($t3)
+
+# Load x[idx]
+mul $t3, $s2, 4
+add $t3, $t0, $t3
+l.s $f4, 0($t3)
+
+# s += h[k] * x[idx]
+mul.s $f6, $f2, $f4
+add.s $f0, $f0, $f6
+
+skip_k:
+	addi $s1, $s1, 1
+	j    loop_k
+
+store_y:
+# y[n] = s
+mul $t3, $s0, 4
+add $t3, $t2, $t3
+s.s $f0, 0($t3)
+
+addi $s0, $s0, 1
+j    loop_n
+
+filter_done:
+	lw   $ra, 12($sp)
+	lw   $s0, 8($sp)
+	lw   $s1, 4($sp)
+	lw   $s2, 0($sp)
+	addi $sp, $sp, 16
 	jr   $ra
 
 # =====================================================================================================================================
