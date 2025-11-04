@@ -1,80 +1,53 @@
 # Wiener Filter (MIPS Assembly)
 ## 🧮 Mathematical Background
 
-The **Wiener filter** minimizes the **mean squared error (MSE)** between the desired signal ( d(n) ) and the filter output ( y(n) ):
+The Wiener filter minimizes the **mean-square error (MSE)** between the desired signal \(d(n)\) and the filter output \(y(n)\):  
 
-[
-J = E\left[(d(n) - y(n))^2\right]
-]
+```math
+J = E\!\left[(\,d(n) - y(n)\,)^{2}\right]
+```
 
-For a **finite impulse response (FIR)** filter of length ( M ):
+For a finite-impulse-response (FIR) filter of length \(M\):  
+```math
+y(n) = \sum_{k=0}^{M-1} h_{k}\;x(n - k)
+```
 
-[
-y(n) = \sum_{k=0}^{M-1} h_k , x(n - k)
-]
-
-We find the **optimal coefficients** ( h = [h_0, h_1, \ldots, h_{M-1}]^T ) that minimize ( J ) using the **Wiener–Hopf equations**:
-
-[
-R , h_{\text{opt}} = \gamma_{dx}
-]
+We find the **optimal coefficients** $\(h = [\,h_{0}, h_{1}, \dots, h_{M-1}\,]^{T}\)$ that minimise $\(J\)$ using the Wiener–Hopf equations:  
+```math
+R\,h_{\text{opt}} = \gamma_{dx}
+```
 
 where:
 
-* ( R ) — autocorrelation (Toeplitz) matrix of input ( x(n) ):
-  [
+R = the autocorrelation (Toeplitz) matrix of the input (x(n)):
+
+  ```math
   R_{l,k} = \gamma_{xx}(l - k)
-  ]
-* ( \gamma_{xx}(m) ) — autocorrelation function:
-  [
-  \gamma_{xx}(m) = E[x(n) , x(n - m)]
-  ]
-* ( \gamma_{dx}(l) ) — cross-correlation vector between ( d(n) ) and ( x(n) ):
-  [
-  \gamma_{dx}(l) = E[d(n) , x(n - l)]
-  ]
+  ```
 
-Once ( h_{\text{opt}} ) is obtained, the **filtered output** is:
+$\gamma_{xx}(m)$ = autocorrelation function:
 
-[
-y(n) = \sum_{k=0}^{M-1} h_{\text{opt}}[k] , x(n - k)
-]
+  ```math
+  \gamma_{xx}(m) = E\!\bigl[x(n)\;x(n - m)\bigr]
+  ```
 
-and the **minimum mean-square error (MMSE)** is computed as:
+$\gamma_{dx}(l)$ = cross-correlation vector between (d(n)) and (x(n)):
 
-[
-\text{MMSE} = \frac{1}{N} \sum_{n=0}^{N-1} (d(n) - y(n))^2
-]
+  ```math
+  \gamma_{dx}(l) = E\!\bigl[d(n)\;x(n - l)\bigr]
+  ```
 
----
+Once $h_{\text{opt}}$ is obtained, the filtered output is:
 
-## 🧩 Computational Steps
+```math
+y(n) = \sum_{k=0}^{M-1} h_{\text{opt}}[k]\;x(n - k)
+```
 
-1. **Estimate autocorrelation** ( \gamma_{xx}(k) )
-   Using:
-   [
-   \gamma_{xx}(k) = \frac{1}{N} \sum_{n=0}^{N-1} x(n) , x(n-k)
-   ]
+and the minimum mean-square error (MMSE) is computed as:
 
-2. **Estimate cross-correlation** ( \gamma_{dx}(l) )
-   Using:
-   [
-   \gamma_{dx}(l) = \frac{1}{N} \sum_{n=0}^{N-1} d(n) , x(n-l)
-   ]
-
-3. **Form Toeplitz matrix** ( R ) from ( \gamma_{xx} )
-
-4. **Solve** ( R h = \gamma_{dx} )
-   Using **Cholesky decomposition**:
-   [
-   R = L L^T, \quad
-   L y = \gamma_{dx}, \quad
-   L^T h = y
-   ]
-
-5. **Filter** input ( x(n) ) using ( h )
-   and compute the MMSE.
----
+```math
+\text{MMSE} = \frac{1}{N} \sum_{n=0}^{N-1} \bigl(d(n) - y(n)\bigr)^{2}
+```
 
 ## 📂 Project Structure
 
@@ -114,7 +87,7 @@ output.txt        # Output (results)
 - [ ] Clean up debug print
 
 ### Report
-- [ ] Python Script for testing large scale
+- [ ] Python Script for testing large scale (possible only after implement reading + reading)
 - [ ] Include screenshots & report diagrams
 
 ---
@@ -122,12 +95,12 @@ output.txt        # Output (results)
 ## 🧪 Testing
 
 Run both:
-- **Python**: chưa có
+- **Python Script**: chưa có
 - **MARS** (`main.asm`) and compare printed MMSE & output sequence.
 
 ---
 
-## 🏁 Expected Output Format
+## 🏁 Expected Output Format (MARS)
 
 ```
 
