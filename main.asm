@@ -106,6 +106,10 @@ move $a0, $s0
 move $a1, $s1
 jal  filter_signal
 
+# Calculate MMSE
+move $a0, $s0
+jal  compute_mmse
+
 # === DEBUGGING ============================================
 
 # [DEBUG]: print gamma_xx array
@@ -137,6 +141,12 @@ la $a0, y_out
 
 move $a1, $s0
 jal  print_float_array
+
+# [DEBUG]: MMSE
+la $a0, mmse_val
+
+li  $a1, 1
+jal print_float_array
 
 # === OWARI ============================================
 # Exit
@@ -671,6 +681,86 @@ filter_done:
 	lw   $s2, 0($sp)
 	addi $sp, $sp, 16
 	jr   $ra
+
+# -------------------------------------------------------------------------------------
+# FUNCTION: compute_mmse
+# -------------------------------------------------------------------------------------
+# PURPOSE:
+# Compute the mean squared error between the global arrays 'desired' and 'y_out'.
+# MMSE = (1/N) * sum_{n=0..N-1} ( desired[n] - y_out[n] )^2
+#
+# INPUT:
+# $a0 = N    # number of samples
+#
+# GLOBALS USED:
+# desired   - float array (length >= N)
+# y_out     - float array (length >= N)
+# mmse_val  - float scalar to store the result
+#
+# OUTPUT:
+# Stores the computed MMSE (float) into mmse_val.
+#
+# RETURN:
+# None (returns to caller)
+# -------------------------------------------------------------------------------------
+compute_mmse:
+	addi $sp, $sp, -16       # create stack frame
+	sw   $ra, 12($sp)
+	sw   $s0, 8($sp)
+	sw   $s1, 4($sp)
+	sw   $s2, 0($sp)
+
+	move $s0, $a0            # s0 = N
+	la   $s1, desired        # s1 = base address of desired[]
+	la   $s2, y_out          # s2 = base address of y_out[]
+
+# accumulator s = 0.0
+mtc1 $zero, $f0
+li   $t0, 0              # t0 = n (index)
+
+mmse_loop:
+	bge $t0, $s0, mmse_done   # if n >= N -> done
+
+# byte offset = n * 4
+sll $t1, $t0, 2
+
+# load desired[n] into $f2
+add  $t2, $s1, $t1
+lwc1 $f2, 0($t2)
+
+# load y_out[n] into $f4
+add  $t3, $s2, $t1
+lwc1 $f4, 0($t3)
+
+# diff = desired[n] - y_out[n]
+sub.s $f6, $f2, $f4
+
+# sq = diff * diff
+mul.s $f8, $f6, $f6
+
+# s += sq
+add.s $f0, $f0, $f8
+
+addi $t0, $t0, 1
+j    mmse_loop
+
+mmse_done:
+# convert N (int) to float and divide
+mtc1    $s0, $f10
+cvt.s.w $f10, $f10
+div.s   $f12, $f0, $f10      # f12 = s / N
+
+# store result into mmse_val
+la   $t4, mmse_val
+swc1 $f12, 0($t4)
+
+# restore and return
+lw   $ra, 12($sp)
+lw   $s0, 8($sp)
+lw   $s1, 4($sp)
+lw   $s2, 0($sp)
+addi $sp, $sp, 16
+jr   $ra
 
 # =====================================================================================================================================
 # === [HELPER]: I/O + DEBUG ===========================================================================================================
