@@ -20,9 +20,9 @@ M_word:    .word 7              # Filter length (M)
 # --------------------------------------------------------------------------------------------------
 # [SIGNALS]
 # --------------------------------------------------------------------------------------------------
-input_sig: .float 99.5, -1.2, 10.4, 1.2, 2434.5, 11.5, -0.5, 67.0, -1.5, 1.2
+input_signal: .float 99.5, -1.2, 10.4, 1.2, 2434.5, 11.5, -0.5, 67.0, -1.5, 1.2
 
-desired:
+desired_signal:
 	.float 100.0, -1.2, 10.9, 1.1, 2435.3, 11.0, -0.8, 66.0, -0.9, 1.1
 
 # --------------------------------------------------------------------------------------------------
@@ -37,12 +37,14 @@ R_matrix: .space 196  # R_matrix: 49 float (MxM = 7x7) Toeplitz matrix
 L_matrix:      .space 196        # lower-triangular matrix L
 temp_vector:      .float 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
 
-hopt:
+optimize_coefficient:
 	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
 # Outputs
-y_out:     .float 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-mmse_val:  .float 0.0
+output_signal:     .float 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+
+mmse:
+	.float 0.0
 
 # --------------------------------------------------------------------------------------------------
 # [STRINGS]
@@ -74,8 +76,8 @@ la $t1, M_word
 lw $s1, 0($t1)          # t3 = M
 
 # --- Call estimate_autocorrelation ---
-la $a0, input_sig       # base of x[n]
-la $a1, input_sig       # base of x[n]
+la $a0, input_signal       # base of x[n]
+la $a1, input_signal       # base of x[n]
 
 move $a2, $s0             # N
 move $a3, $s1             # maxlag
@@ -83,8 +85,8 @@ move $a3, $s1             # maxlag
 jal estimate_correlation
 
 # --- Call estimate_crosscorrelation ---
-la $a0, desired         # base of d[n]
-la $a1, input_sig       # base of x[n]
+la $a0, desired_signal         # base of d[n]
+la $a1, input_signal       # base of x[n]
 
 move $a2, $s0             # N
 move $a3, $s1             # maxlag
@@ -131,19 +133,19 @@ mul $a1, $s1, $s1    # a1 = M * M  (pseudo-instr; MARS supports this)
 jal print_float_array
 
 # [DEBUG]: print hopt matrix
-la $a0, hopt
+la $a0, optimize_coefficient
 
 move $a1, $s1
 jal  print_float_array
 
 # [DEBUG]: filtered output
-la $a0, y_out
+la $a0, output_signal
 
 move $a1, $s0
 jal  print_float_array
 
 # [DEBUG]: MMSE
-la $a0, mmse_val
+la $a0, mmse
 
 li  $a1, 1
 jal print_float_array
@@ -358,7 +360,7 @@ build_R_done:
 # gamma_dx   - Right-hand vector γ_d (float[M])
 # L_matrix   - Workspace for Cholesky lower triangle (float[M][M])
 # temp_vector - Workspace for forward substitution (float[M])
-# hopt       - Output vector h (float[M])
+# optimize_coefficient       - Output vector h (float[M])
 #
 # OUTPUT:
 # hopt[] = Solution vector for R * h = γ_d
@@ -563,7 +565,7 @@ back_k:
 	l.s $f6, 0($t2) # Value of L[k, i]
 
 	sll $t2, $t1, 2
-	la  $t3, hopt
+	la  $t3, optimize_coefficient
 	add $t2, $t3, $t2
 	l.s $f8, 0($t2) # Value of hopt[k]
 
@@ -593,7 +595,7 @@ l.s $f14, 0($t2) # Value of L[i, i]
 div.s $f12, $f12, $f14 # (temp[i] - s) / L[i, i]
 
 sll $t2, $t0, 2
-la  $t3, hopt
+la  $t3, optimize_coefficient
 add $t2, $t3, $t2 # address of x[i]
 
 s.s $f12, 0($t2) # Load (temp[i] - s) / L[i, i] --------> x[i]
@@ -624,9 +626,9 @@ filter_signal:
 	sw   $s1, 4($sp)
 	sw   $s2, 0($sp)
 
-	la   $t0, input_sig     # base address of x (input)
-	la   $t1, hopt        # base address of h (filter)
-	la   $t2, y_out     # base address of y (output)
+	la   $t0, input_signal     # base address of x (input)
+	la   $t1, optimize_coefficient        # base address of h (filter)
+	la   $t2, output_signal     # base address of y (output)
 	move $s0, $zero            # n = 0
 
 loop_n:
@@ -686,19 +688,19 @@ filter_done:
 # FUNCTION: compute_mmse
 # -------------------------------------------------------------------------------------
 # PURPOSE:
-# Compute the mean squared error between the global arrays 'desired' and 'y_out'.
-# MMSE = (1/N) * sum_{n=0..N-1} ( desired[n] - y_out[n] )^2
+# Compute the mean squared error between the global arrays 'desired' and 'output_signal'.
+# MMSE = (1/N) * sum_{n=0..N-1} ( desired[n] - output_signal[n] )^2
 #
 # INPUT:
 # $a0 = N    # number of samples
 #
 # GLOBALS USED:
-# desired   - float array (length >= N)
-# y_out     - float array (length >= N)
-# mmse_val  - float scalar to store the result
+# desired_signal   - float array (length >= N)
+# output_signal     - float array (length >= N)
+# mmse  - float scalar to store the result
 #
 # OUTPUT:
-# Stores the computed MMSE (float) into mmse_val.
+# Stores the computed MMSE (float) into mmse.
 #
 # RETURN:
 # None (returns to caller)
@@ -711,8 +713,8 @@ compute_mmse:
 	sw   $s2, 0($sp)
 
 	move $s0, $a0            # s0 = N
-	la   $s1, desired        # s1 = base address of desired[]
-	la   $s2, y_out          # s2 = base address of y_out[]
+	la   $s1, desired_signal        # s1 = base address of desired[]
+	la   $s2, output_signal          # s2 = base address of output_signal[]
 
 # accumulator s = 0.0
 mtc1 $zero, $f0
@@ -728,11 +730,11 @@ sll $t1, $t0, 2
 add  $t2, $s1, $t1
 lwc1 $f2, 0($t2)
 
-# load y_out[n] into $f4
+# load output_signal[n] into $f4
 add  $t3, $s2, $t1
 lwc1 $f4, 0($t3)
 
-# diff = desired[n] - y_out[n]
+# diff = desired[n] - output_signal[n]
 sub.s $f6, $f2, $f4
 
 # sq = diff * diff
@@ -750,8 +752,8 @@ mtc1    $s0, $f10
 cvt.s.w $f10, $f10
 div.s   $f12, $f0, $f10      # f12 = s / N
 
-# store result into mmse_val
-la   $t4, mmse_val
+# store result into mmse
+la   $t4, mmse
 swc1 $f12, 0($t4)
 
 # restore and return
