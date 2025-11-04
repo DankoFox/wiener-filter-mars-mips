@@ -1,28 +1,79 @@
 # Wiener Filter (MIPS Assembly)
 ## 🧮 Mathematical Background
 
-The Wiener filter minimizes the mean-square error between desired signal \( d(n) \) and filtered output \( y(n) \).
+The **Wiener filter** minimizes the **mean squared error (MSE)** between the desired signal ( d(n) ) and the filter output ( y(n) ):
 
-<img src="https://latex.codecogs.com/gif.latex?y(n)=\sum_{k=0}^{M-1}h_kx(n-k)" />
+[
+J = E\left[(d(n) - y(n))^2\right]
+]
 
-<img src="https://latex.codecogs.com/gif.latex?E_M=E\left[\left|d(n)-\sum_{k=0}^{M-1}h_kx(n-k)\right|^2\right]" />
+For a **finite impulse response (FIR)** filter of length ( M ):
 
-The optimal coefficients \( h_{opt} \) satisfy:
+[
+y(n) = \sum_{k=0}^{M-1} h_k , x(n - k)
+]
 
-<img src="https://latex.codecogs.com/gif.latex?\sum_{k=0}^{M-1}h_k\gamma_{xx}(l-k)=\gamma_{dx}(l)" />
+We find the **optimal coefficients** ( h = [h_0, h_1, \ldots, h_{M-1}]^T ) that minimize ( J ) using the **Wiener–Hopf equations**:
 
-Matrix form:
+[
+R , h_{\text{opt}} = \gamma_{dx}
+]
 
-<img src="https://latex.codecogs.com/gif.latex?R_Mh_M=\gamma_d" />
+where:
 
-Solution:
+* ( R ) — autocorrelation (Toeplitz) matrix of input ( x(n) ):
+  [
+  R_{l,k} = \gamma_{xx}(l - k)
+  ]
+* ( \gamma_{xx}(m) ) — autocorrelation function:
+  [
+  \gamma_{xx}(m) = E[x(n) , x(n - m)]
+  ]
+* ( \gamma_{dx}(l) ) — cross-correlation vector between ( d(n) ) and ( x(n) ):
+  [
+  \gamma_{dx}(l) = E[d(n) , x(n - l)]
+  ]
 
-<img src="https://latex.codecogs.com/gif.latex?h_{opt}=R_M^{-1}\gamma_d" />
+Once ( h_{\text{opt}} ) is obtained, the **filtered output** is:
 
-Minimum Mean-Square Error:
+[
+y(n) = \sum_{k=0}^{M-1} h_{\text{opt}}[k] , x(n - k)
+]
 
-<img src="https://latex.codecogs.com/gif.latex?MMSE=\sigma_d^2-\gamma_d^T R_M^{-1}\gamma_d" />
+and the **minimum mean-square error (MMSE)** is computed as:
 
+[
+\text{MMSE} = \frac{1}{N} \sum_{n=0}^{N-1} (d(n) - y(n))^2
+]
+
+---
+
+## 🧩 Computational Steps
+
+1. **Estimate autocorrelation** ( \gamma_{xx}(k) )
+   Using:
+   [
+   \gamma_{xx}(k) = \frac{1}{N} \sum_{n=0}^{N-1} x(n) , x(n-k)
+   ]
+
+2. **Estimate cross-correlation** ( \gamma_{dx}(l) )
+   Using:
+   [
+   \gamma_{dx}(l) = \frac{1}{N} \sum_{n=0}^{N-1} d(n) , x(n-l)
+   ]
+
+3. **Form Toeplitz matrix** ( R ) from ( \gamma_{xx} )
+
+4. **Solve** ( R h = \gamma_{dx} )
+   Using **Cholesky decomposition**:
+   [
+   R = L L^T, \quad
+   L y = \gamma_{dx}, \quad
+   L^T h = y
+   ]
+
+5. **Filter** input ( x(n) ) using ( h )
+   and compute the MMSE.
 ---
 
 ## 📂 Project Structure
