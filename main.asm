@@ -1,7 +1,6 @@
 # ==================================================================================================
 # PROJECT  :   ̶S̶E̶K̶A̶I̶ Wiener Filter (M=5, N=10)
 # FILE     :  main.asm
-# AUTHOR   :  <Your Name or Team Name>
 # --------------------------------------------------------------------------------------------------
 # STRUCTURE:
 # [0] Data Section
@@ -33,8 +32,9 @@ gamma_xx:  .float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0    # Autocorrelation results
 gamma_dx:  .float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0   # Cross-correlation (future use)
 
 R:
-	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+# 49 (MxM = 7x7) Toeplitz matrix
+.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
 hopt:
 	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -72,17 +72,22 @@ la $t2, M_word
 lw $s1, 0($t2)          # t3 = M
 
 # --- Call estimate_autocorrelation ---
-la   $a0, input_sig
-move $a1, $s0
-move $a2, $s1
-jal  estimate_autocorrelation
+la $a0, input_sig       # base of x[n]
+la $a1, input_sig       # base of x[n]
 
-# --- Call estimate_crosscorrelation ---
-la   $a0, desired     # base of d[n]
-la   $a1, input_sig       # base of x[n]
 move $a2, $s0             # N
 move $a3, $s1             # maxlag
-jal  estimate_crosscorrelation
+
+jal estimate_correlation
+
+# --- Call estimate_crosscorrelation ---
+la $a0, desired         # base of d[n]
+la $a1, input_sig       # base of x[n]
+
+move $a2, $s0             # N
+move $a3, $s1             # maxlag
+
+jal estimate_correlation
 
 # Build R from gamma_xx
 la   $a0, gamma_xx    # gamma_xx base
@@ -118,168 +123,100 @@ syscall
 # =====================================================================================================================================
 
 # ---------------------------------------------------------
-# (core-func) estimate_autocorrelation(x[], N, M)
-
+# estimate_correlation
+#
 # Computes:
-# gamma_xx[k] = (1/N) * Σ (x[n] * x[n-k])
+# gamma_xy[k] = (1/N) * Σ (x[n] * y[n-k])
 #
 # Inputs:
-# a0 = base address of input signal x[]
-# a1 = N (int)
-# a2 = M (int)
-
-# Output:
-# Writes gamma_xx[k] (float) results into memory
-# ---------------------------------------------------------
-estimate_autocorrelation:
-	addi $sp, $sp, -16
-	sw   $ra, 12($sp)
-	sw   $s0, 8($sp)
-	sw   $s1, 4($sp)
-
-	move $s0, $a0    # s0 = base of x
-	move $s1, $a1    # s1 = N
-	move $s2, $a2    # s2 = M
-
-# for (k = 0; k < M; k++)
-li $t0, 0      # k = 0
-
-loop_k:
-	bge $t0, $s2, end_est_autocorr
-
-# s = 0.0  (we use $f2 to accumulate)
-la  $t2, zero_float
-l.s $f2, 0($t2)
-
-# for (n = 0; n < N; n++)
-li $t1, 0      # n = 0
-
-loop_n:
-	bge $t1, $s1, end_loop_n
-
-# idx = n - k
-sub $t2, $t1, $t0
-blt $t2, $zero, skip_product
-bge $t2, $s1, skip_product
-
-# load x[n] into $f4
-sll  $t3, $t1, 2
-add  $t4, $s0, $t3
-lwc1 $f4, 0($t4)
-
-# load x[idx] into $f6
-sll  $t5, $t2, 2
-add  $t6, $s0, $t5
-lwc1 $f6, 0($t6)
-
-mul.s $f8, $f4, $f6    # f8 = x[n] * x[idx]
-add.s $f2, $f2, $f8    # accumulate into f2
-
-skip_product:
-	addi $t1, $t1, 1
-	j    loop_n
-
-end_loop_n:
-
-# denom = N  (biased estimator)
-# gamma_xx[k] = f2 / N
-
-mtc1    $s1, $f14 # move int N to $f14
-cvt.s.w $f14, $f14    # convert integer to float: now f14 = float(N)
-div.s   $f2, $f2, $f14   # f2 = f2 * (1/N)
-
-# store f2 into gamma_xx[k]
-la   $t7, gamma_xx
-sll  $t8, $t0, 2
-add  $t9, $t7, $t8
-swc1 $f2, 0($t9)
-
-addi $t0, $t0, 1
-j    loop_k
-
-end_est_autocorr:
-	lw   $ra, 12($sp)
-	lw   $s0, 8($sp)
-	lw   $s1, 4($sp)
-	addi $sp, $sp, 16
-	jr   $ra
-
-# ---------------------------------------------------------
-# estimate_crosscorrelation
-
-# Computes:
-# gamma_dx[k] = (1/N) * Σ (d[n] * x[n-k])
-#
-# Inputs:
-# a0 = base address of d[n]   (float array)
-# a1 = base address of x[n]   (float array)
+# a0 = base address of x[n]   (float array)
+# a1 = base address of y[n]   (float array) (same as x[n] for autocorrelation)
 # a2 = N                      (int)
 # a3 = maxlag                 (int)
 #
 # Output:
-# gamma_dx(l) array stored in gamma_dx
+# gamma_xy(l) array stored in gamma_xx or gamma_dx (depends on usage)
 # ---------------------------------------------------------
-estimate_crosscorrelation:
-	addi $sp, $sp, -16
+estimate_correlation:
+	addi $sp, $sp, -16          # Save registers
 	sw   $ra, 12($sp)
-	sw   $s0, 8($sp)    # l
-	sw   $s1, 4($sp)    # n
-	sw   $s2, 0($sp)    # temp addr
+	sw   $s0, 8($sp)
+	sw   $s1, 4($sp)
+	sw   $s2, 0($sp)
 
-	la $t4, gamma_dx  # base address of output array
-	li $s0, 0         # l = 0
+# Check if the addresses of both arrays (x[n] and y[n]) are the same (autocorrelation case)
+# If they are the same, use gamma_xx. If not, use gamma_dx.
 
-crosscorr_outer_loop:
-	bgt $s0, $a3, crosscorr_done
+# Compare the addresses (a0 = x[n], a1 = y[n])
+bne $a0, $a1, not_same_addresses   # Branch if a0 (x[n]) != a1 (y[n]) (cross-correlation)
+
+# If addresses are the same (autocorrelation), load gamma_xx
+la $t8, gamma_xx     # Load the base address of gamma_xx
+j  common_case        # Jump to the common part of the function
+
+not_same_addresses:
+# If addresses are different (cross-correlation), load gamma_dx
+la $t8, gamma_dx     # Load the base address of gamma_dx
+
+common_case:
+	move $s0, $a0      # s0 = base of x (input signal)
+	move $s1, $a1      # s1 = base of y (desired signal, or same as x for autocorrelation)
+	move $s2, $a2      # s2 = N (signal length)
+	move $s3, $a3      # s3 = M (max lag)
+
+	li $t0, 0          # l = 0 (outer loop for lag)
+
+correlation_outer_loop:
+	bge $t0, $s3, correlation_done   # If l >= M, finish
 
 	la  $t2, zero_float
-	l.s $f0, 0($t2)
+	l.s $f0, 0($t2)    # Initialize sum = 0 (using f0 for accumulation)
 
-	li $s1, 0         # n = 0
+	li $t1, 0          # n = 0 (inner loop)
 
-crosscorr_inner_loop:
-	bge $s1, $a2, crosscorr_sum_done
+correlation_inner_loop:
+	bge $t1, $s2, correlation_sum_done  # If n >= N, finish this loop
 
-	sub $t0, $s1, $s0  # idx = n - l
+# Calculate idx = n - l
+sub  $t3, $t1, $t0   # idx = n - l
+bltz $t3, skip_product  # If idx < 0, skip product
+bge  $t3, $s2, skip_product  # If idx >= N, skip product
 
-	bltz $t0, crosscorr_next_n
-	bge  $t0, $a2, crosscorr_next_n  # skip if idx >= N
+# Load x[n] into f2
+sll  $t4, $t1, 2       # byte offset = n * 4
+add  $t5, $s0, $t4     # address of x[n]
+lwc1 $f2, 0($t5)       # load x[n] into f2
 
-# Load d[n]
-sll  $t1, $s1, 2
-add  $t2, $a0, $t1
-lwc1 $f2, 0($t2)
+# Load y[idx] into f4
+sll  $t6, $t3, 2       # byte offset = idx * 4
+add  $t7, $s1, $t6     # address of y[idx]
+lwc1 $f4, 0($t7)       # load y[idx] into f4
 
-# Load x[idx]
-sll  $t3, $t0, 2
-add  $t2, $a1, $t3
-lwc1 $f4, 0($t2)
+# Multiply and accumulate: f0 += x[n] * y[idx]
+mul.s $f6, $f2, $f4    # f6 = x[n] * y[idx]
+add.s $f0, $f0, $f6    # sum += f6
 
-# Multiply and accumulate: s += d[n] * x[idx]
-mul.s $f6, $f2, $f4
-add.s $f0, $f0, $f6
+skip_product:
+	addi $t1, $t1, 1       # Increment n
+	j    correlation_inner_loop
 
-crosscorr_next_n:
-	addi $s1, $s1, 1
-	j    crosscorr_inner_loop
+correlation_sum_done:
+# Divide the sum by N (biased estimator)
+mtc1    $s2, $f8       # move N into f8
+cvt.s.w $f8, $f8       # convert int to float
+div.s   $f10, $f0, $f8  # f10 = f0 / N
 
-crosscorr_sum_done:
-# Divide by N (biased version)
-mtc1    $a2, $f8
-cvt.s.w $f8, $f8
-div.s   $f10, $f0, $f8
+# Store result in gamma_xy[l] (store it into gamma_xx or gamma_dx based on usage)
+sll  $t9, $t0, 2       # byte offset = l * 4
+add  $t9, $t8, $t9    # address of gamma_xy[l]
+swc1 $f10, 0($t9)     # store gamma_xy[l] into memory
 
-# Store gamma_dx[l]
-sll  $t5, $s0, 2
-add  $t6, $t4, $t5
-swc1 $f10, 0($t6)
+# Next l
+addi $t0, $t0, 1
+j    correlation_outer_loop
 
-# next l
-addi $s0, $s0, 1
-j    crosscorr_outer_loop
-
-crosscorr_done:
-	lw   $ra, 12($sp)
+correlation_done:
+	lw   $ra, 12($sp)      # Restore registers
 	lw   $s0, 8($sp)
 	lw   $s1, 4($sp)
 	lw   $s2, 0($sp)
@@ -412,4 +349,3 @@ lw   $ra, 4($sp)
 lw   $s0, 0($sp)
 addi $sp, $sp, 8
 jr   $ra
-
