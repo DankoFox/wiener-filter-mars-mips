@@ -68,8 +68,8 @@ main:
 # Load N and M into registers
 la $t0, N_word
 lw $s0, 0($t0)          # t1 = N
-la $t2, M_word
-lw $s1, 0($t2)          # t3 = M
+la $t1, M_word
+lw $s1, 0($t1)          # t3 = M
 
 # --- Call estimate_autocorrelation ---
 la $a0, input_sig       # base of x[n]
@@ -144,19 +144,14 @@ estimate_correlation:
 	sw   $s1, 4($sp)
 	sw   $s2, 0($sp)
 
-# Check if the addresses of both arrays (x[n] and y[n]) are the same (autocorrelation case)
-# If they are the same, use gamma_xx. If not, use gamma_dx.
-
-# Compare the addresses (a0 = x[n], a1 = y[n])
-bne $a0, $a1, not_same_addresses   # Branch if a0 (x[n]) != a1 (y[n]) (cross-correlation)
-
-# If addresses are the same (autocorrelation), load gamma_xx
-la $t8, gamma_xx     # Load the base address of gamma_xx
-j  common_case        # Jump to the common part of the function
+# If same address (x[n] and y[n])
+# -> autocorrelation -> use gamma_xx else gamma_dx (cross-correlation)
+bne $a0, $a1, not_same_addresses
+la  $t8, gamma_xx
+j   common_case        # Jump to the common part of the function
 
 not_same_addresses:
-# If addresses are different (cross-correlation), load gamma_dx
-la $t8, gamma_dx     # Load the base address of gamma_dx
+	la $t8, gamma_dx
 
 common_case:
 	move $s0, $a0      # s0 = base of x (input signal)
@@ -169,28 +164,31 @@ common_case:
 correlation_outer_loop:
 	bge $t0, $s3, correlation_done   # If l >= M, finish
 
-	la  $t2, zero_float
-	l.s $f0, 0($t2)    # Initialize sum = 0 (using f0 for accumulation)
+# init $f0 = 0.0 (outer_loop accumulator)
+la  $t2, zero_float
+l.s $f0, 0($t2)
 
-	li $t1, 0          # n = 0 (inner loop)
+li $t1, 0          # n = 0 (inner loop)
 
 correlation_inner_loop:
 	bge $t1, $s2, correlation_sum_done  # If n >= N, finish this loop
 
 # Calculate idx = n - l
-sub  $t3, $t1, $t0   # idx = n - l
-bltz $t3, skip_product  # If idx < 0, skip product
-bge  $t3, $s2, skip_product  # If idx >= N, skip product
+sub $t2, $t1, $t0   # idx = n - l
+
+# Skip invalid
+bltz $t2, skip_product  # If idx < 0, skip product
+bge  $t2, $s2, skip_product  # If idx >= N, skip product
 
 # Load x[n] into f2
-sll  $t4, $t1, 2       # byte offset = n * 4
-add  $t5, $s0, $t4     # address of x[n]
-lwc1 $f2, 0($t5)       # load x[n] into f2
+sll  $t3, $t1, 2       # byte offset = n * 4
+add  $t3, $s0, $t3     # address of x[n]
+lwc1 $f2, 0($t3)       # load x[n] into f2
 
 # Load y[idx] into f4
-sll  $t6, $t3, 2       # byte offset = idx * 4
-add  $t7, $s1, $t6     # address of y[idx]
-lwc1 $f4, 0($t7)       # load y[idx] into f4
+sll  $t3, $t2, 2       # byte offset = idx * 4
+add  $t3, $s1, $t3     # address of y[idx]
+lwc1 $f4, 0($t3)       # load y[idx] into f4
 
 # Multiply and accumulate: f0 += x[n] * y[idx]
 mul.s $f6, $f2, $f4    # f6 = x[n] * y[idx]
@@ -200,16 +198,16 @@ skip_product:
 	addi $t1, $t1, 1       # Increment n
 	j    correlation_inner_loop
 
+# Divide the sum by N
 correlation_sum_done:
-# Divide the sum by N (biased estimator)
-mtc1    $s2, $f8       # move N into f8
-cvt.s.w $f8, $f8       # convert int to float
-div.s   $f10, $f0, $f8  # f10 = f0 / N
+	mtc1    $s2, $f8       # move N into f8
+	cvt.s.w $f8, $f8       # convert int to float
+	div.s   $f10, $f0, $f8  # f10 = f0 / N
 
 # Store result in gamma_xy[l] (store it into gamma_xx or gamma_dx based on usage)
-sll  $t9, $t0, 2       # byte offset = l * 4
-add  $t9, $t8, $t9    # address of gamma_xy[l]
-swc1 $f10, 0($t9)     # store gamma_xy[l] into memory
+sll  $t3, $t0, 2       # byte offset = l * 4
+add  $t3, $t8, $t3    # address of gamma_xy[l]
+swc1 $f10, 0($t3)     # store gamma_xy[l] into memory
 
 # Next l
 addi $t0, $t0, 1
