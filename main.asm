@@ -52,9 +52,17 @@ mmse:
 lbl_hdr:      .asciiz "=== Wiener Filter Results ===\n"
 lbl_outseq:   .asciiz "Output sequence (y):\n"
 lbl_mmse:     .asciiz "\nMMSE: "
+space_str:   .asciiz " "
 
 newline:
 	.asciiz "\n"
+
+# --------------------------------------------------------------------------------------------------
+# [I/O]
+# --------------------------------------------------------------------------------------------------
+input_file: .asciiz "input.txt"
+desired_file: .asciiz "desired.txt"
+output_file: .asciiz "output.txt"
 
 # --------------------------------------------------------------------------------------------------
 # [CONSTANTS]
@@ -111,6 +119,9 @@ jal  filter_signal
 # Calculate MMSE
 move $a0, $s0
 jal  compute_mmse
+
+# TODO:: implement write_output_signal_to_file
+# jal write_output_signal_to_file
 
 # === DEBUGGING ============================================
 
@@ -819,7 +830,7 @@ j    .print_loop
 	jr   $ra
 
 # =====================================================================
-# FUNCTION : round1dp
+# HELPER-UTIL : round1dp
 # PURPOSE  : Round a floating-point number to 1 decimal place.
 # METHOD   : Multiply by 10, round to nearest integer, then divide by 10.
 # FORMULA  : result = round(x * 10) / 10
@@ -837,3 +848,38 @@ round1dp:
 	div.s     $f0, $f18, $f20     # <-- use $f0, not $f12
 
 	jr $ra
+
+# =====================================================================
+# FUNCTION : read_input_and_desired_from_files
+# PURPOSE  : Read numeric text values from "input.txt" + "desired.txt" and load them
+# into the global array input_signal.
+# =====================================================================
+read_input_and_desired_from_files:
+# TODO: read input and desired and load into .data
+
+# =====================================================================
+# HELPER-IO : write_output_signal_to_file
+# PURPOSE  : Write the global array "output_signal" (length = N_word)
+# to a text file "output.txt" with values rounded to 1dp.
+# =====================================================================
+write_output_signal_to_file:
+	addi $sp, $sp, -8
+	sw   $ra, 4($sp)
+	sw   $s0, 0($sp)
+
+	la $s0, output_signal     # base address
+	lw $t0, N_word            # number of elements (N)
+
+	li   $v0, 13
+	la   $a0, output_file
+	li   $a1, 1
+	syscall
+	move $s1, $v0               # file descriptor (fd)
+
+# TODO: write to output
+
+lw   $ra, 4($sp)
+lw   $s0, 0($sp)
+addi $sp, $sp, 8
+jr   $ra
+
