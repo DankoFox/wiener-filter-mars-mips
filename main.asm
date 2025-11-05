@@ -60,7 +60,7 @@ newline:
 # [CONSTANTS]
 # --------------------------------------------------------------------------------------------------
 zero_float: .float 0.0
-one_float:  .float 1.0
+ten_float: .float 10.0 # i hate you i hate you i hate you i hate you kkk
 
 # =====================================================================================================================================
 # [1] MAIN ROUTINE
@@ -792,6 +792,10 @@ sll  $t1, $t0, 2
 add  $t2, $s0, $t1
 lwc1 $f12, 0($t2)
 
+# call round to 1 digit ($f12 as arg -> result: $f0)
+jal   round1dp
+mov.s $f12, $f0
+
 # syscall 2 = print float
 li $v0, 2
 syscall
@@ -805,12 +809,31 @@ addi $t0, $t0, 1
 j    .print_loop
 
 .print_done:
-# print newline
-li $v0, 4
-la $a0, newline
-syscall
+	li $v0, 4
+	la $a0, newline
+	syscall
 
-lw   $ra, 4($sp)
-lw   $s0, 0($sp)
-addi $sp, $sp, 8
-jr   $ra
+	lw   $ra, 4($sp)
+	lw   $s0, 0($sp)
+	addi $sp, $sp, 8
+	jr   $ra
+
+# =====================================================================
+# FUNCTION : round1dp
+# PURPOSE  : Round a floating-point number to 1 decimal place.
+# METHOD   : Multiply by 10, round to nearest integer, then divide by 10.
+# FORMULA  : result = round(x * 10) / 10
+# ARGUMENTS:
+# $f12 = input float value (x)
+# RETURNS:
+# $f0  = rounded float value (to 1 decimal place)
+# =====================================================================
+round1dp:
+	l.s $f20, ten_float
+
+	mul.s     $f14, $f12, $f20
+	round.w.s $f16, $f14
+	cvt.s.w   $f18, $f16
+	div.s     $f0, $f18, $f20     # <-- use $f0, not $f12
+
+	jr $ra
