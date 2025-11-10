@@ -51,6 +51,7 @@ mmse:
 # --------------------------------------------------------------------------------------------------
 lbl_hdr:      .asciiz "=== Wiener Filter Results ===\n"
 lbl_outseq:   .asciiz "Output sequence (y):\n"
+lbl_filteredoutput: .asciiz "Filtered output: "
 lbl_mmse:     .asciiz "\nMMSE: "
 space_str:   .asciiz " "
 
@@ -69,6 +70,8 @@ output_file: .asciiz "output.txt"
 # --------------------------------------------------------------------------------------------------
 zero_float: .float 0.0
 ten_float: .float 10.0 # i hate you i hate you i hate you i hate you kkk
+
+num_buf:      .space 32         # buffer for output file
 
 # =====================================================================================================================================
 # [1] MAIN ROUTINE
@@ -120,8 +123,7 @@ jal  filter_signal
 move $a0, $s0
 jal  compute_mmse
 
-# TODO:: implement write_output_signal_to_file
-# jal write_output_signal_to_file
+jal write_output_signal_to_file
 
 # === DEBUGGING ============================================
 
@@ -857,29 +859,268 @@ round1dp:
 read_input_and_desired_from_files:
 # TODO: read input and desired and load into .data
 
+
 # =====================================================================
 # HELPER-IO : write_output_signal_to_file
 # PURPOSE  : Write the global array "output_signal" (length = N_word)
 # to a text file "output.txt" with values rounded to 1dp.
 # =====================================================================
 write_output_signal_to_file:
-	addi $sp, $sp, -8
-	sw   $ra, 4($sp)
-	sw   $s0, 0($sp)
+    addi $sp, $sp, -24
+    sw   $ra, 20($sp)
+    sw   $s0, 16($sp)   # N
+    sw   $s1, 12($sp)   # fd
+    sw   $s2,  8($sp)   # base address of y
+    sw   $s3,  4($sp)   # loop index
+    sw   $s4,  0($sp)   # temp
+    # open output.txt
+    li   $v0, 13
+    la   $a0, output_file
+    li   $a1, 9
+    syscall
+    move $s1, $v0
+    bltz $s1, error_return
+    # load variables
+    lw   $s0, N_word
+    la   $s2, output_signal
+    move $s3, $zero		# n = 0
+    # print "Filtered output: "
+    li   $v0, 15
+    move $a0, $s1	# fd
+    la   $a1, lbl_filteredoutput
+    li   $a2, 18
+    syscall
 
-	la $s0, output_signal     # base address
-	lw $t0, N_word            # number of elements (N)
+# # # Filtered output # # #
+write_output_loop:
+    bge  $s3, $s0, write_output_done
+    # round y[n] to 1 decimal point
+    sll  $t0, $s3, 2    # t0 = byte offset
+    add  $t1, $s2, $t0  # t1 = address of y[n]
+    lwc1 $f12, 0($t1)
+    jal  round1dp	    # $f0 = rounded result
+    # multiply by 10 to shift decimal place
+    l.s  $f14, ten_float
+    mul.s $f16, $f0, $f14
+    round.w.s $f18, $f16 	
+    mfc1 $t2, $f18	# t2 = int result
+    # build string float "[-]ddd.d"
+    la   $t5, num_buf   # t5 = buffer pointer
+    move $t6, $zero		# t6 = len = 0
+    # check if number is negative
+    bltz $t2, write_negative_result
+    j write_positive_result
 
-	li   $v0, 13
-	la   $a0, output_file
-	li   $a1, 1
-	syscall
-	move $s1, $v0               # file descriptor (fd)
+write_negative_result:
+    neg  $t3, $t2
+    li   $t4, 45    # ASCII '-'
+    sb   $t4, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    j    handle_integer_and_fraction
 
-# TODO: write to output
+write_positive_result:
+    move $t3, $t2
+    j    handle_integer_and_fraction
 
-lw   $ra, 4($sp)
-lw   $s0, 0($sp)
-addi $sp, $sp, 8
-jr   $ra
+handle_integer_and_fraction:
+    li   $t4, 10
+    div  $t3, $t4
+    mflo $t7    # t7 = int part = t3 / 10
+    mfhi $t8    # t8 = fraction digit = t3 % 10
+    # print int part
+    bnez $t7, handle_int_part
+    li   $t9, 48    # ASCII for '0'
+    sb   $t9, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    j    handle_fraction_part
+
+handle_fraction_part:
+    # store the decimal point '.'
+    li   $t2, 46    # ASCII for '.'
+    sb   $t2, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    # store the fractional digit
+    addi $t2, $t8, 48   # convert fraction to ASCII
+    sb   $t2, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    # store space after the number
+    li   $t2, 32    # ASCII for ' '
+    sb   $t2, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    # write buffer to file
+    li   $v0, 15
+    move $a0, $s1   # fd
+    la   $a1, num_buf
+    move $a2, $t6
+    syscall
+    # increment loop index n++
+    addi $s3, $s3, 1
+    j    write_output_loop
+
+handle_int_part:
+    li   $t9, 1
+    j power_found
+
+power_found:
+    move $t0, $t7
+    div  $t0, $t9
+    mflo $t0
+    li   $t1, 10
+    blt  $t0, $t1, print_int_digits
+    mul  $t9, $t9, $t1
+    j    power_found
+
+print_int_digits:
+    beq  $t9, $zero, handle_fraction_part
+    move $t0, $t7
+    div  $t0, $t9
+    mflo $t2
+    mfhi $t7
+    addi $t2, $t2, 48   # convert int to ASCII
+    sb   $t2, 0($t5)    # store digit in num_buf
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    li   $t1, 10
+    div  $t9, $t1
+    mflo $t9
+    j    print_int_digits
+
+write_output_done:
+    # write newline
+    li   $v0, 15
+    move $a0, $s1
+    la   $a1, newline
+    li   $a2, 1
+    syscall
+    j   write_mmse
+
+# # # MMSE # # #
+write_mmse:
+    # write prefix "MMSE: "
+    li   $v0, 15
+    move $a0, $s1
+    la   $a1, lbl_mmse
+    li   $a2, 7
+    syscall
+    # write MMSE
+    la   $t0, mmse
+    lwc1 $f12, 0($t0)
+    jal  round1dp
+    l.s  $f14, ten_float
+    mul.s $f16, $f0, $f14
+    round.w.s $f18, $f16
+    mfc1 $t2, $f18  # t2 = mmse * 10
+    # build string "[-]ddd.d\n"
+    la   $t5, num_buf
+    move $t6, $zero
+    bltz $t2, negative_mmse
+    j    positive_mmse
+
+negative_mmse:
+    neg  $t3, $t2
+    li   $t4, 45    # ASCII for '-'
+    sb   $t4, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    # write MMSE digits
+    li   $t4, 10
+    div  $t3, $t4
+    mflo $t7
+    mfhi $t8
+    bnez $t7, mmse_int_part
+    li   $t9, 48    # ASCII for '0'
+    sb   $t9, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    j    mmse_fraction_part
+
+positive_mmse:
+    move $t3, $t2
+    li   $t4, 10
+    div  $t3, $t4
+    mflo $t7    # integer part
+    mfhi $t8    # fraction digit
+    bnez $t7, mmse_int_part
+    li   $t9, 48    # ASCII for '0'
+    sb   $t9, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    j    mmse_fraction_part
+
+mmse_int_part:
+    li  $t9, 1
+    j   mmse_find_pow
+
+mmse_find_pow:
+    move $t0, $t7
+    div  $t0, $t9
+    mflo $t0
+    li   $t1, 10
+    blt  $t0, $t1, mmse_print_digits
+    mul  $t9, $t9, $t1
+    j    mmse_find_pow
+
+mmse_print_digits:
+    beq  $t9, $zero, mmse_fraction_part
+    move $t0, $t7
+    div  $t0, $t9
+    mflo $t2
+    mfhi $t7
+    addi $t2, $t2, 48
+    sb   $t2, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    li   $t1, 10
+    div  $t9, $t1
+    mflo $t9
+    j    mmse_print_digits
+
+mmse_fraction_part:
+    li   $t2, 46    # ASCII for '.'
+    sb   $t2, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    addi $t2, $t8, 48   # fraction digit
+    sb   $t2, 0($t5)
+    addi $t5, $t5, 1
+    addi $t6, $t6, 1
+    li   $t2, 10
+    sb   $t2, 0($t5)
+    addi $t6, $t6, 1
+    # write MMSE to file
+    li   $v0, 15
+    move $a0, $s1
+    la   $a1, num_buf
+    move $a2, $t6
+    syscall
+    # close file
+    li   $v0, 16
+    move $a0, $s1
+    syscall
+    # restore registers and return
+    lw   $ra, 20($sp)
+    lw   $s0, 16($sp)
+    lw   $s1, 12($sp)
+    lw   $s2,  8($sp)
+    lw   $s3,  4($sp)
+    lw   $s4,  0($sp)
+    addi $sp, $sp, 24
+    jr   $ra
+
+error_return:
+    # if open failed, return quietly
+    lw   $ra, 20($sp)
+    lw   $s0, 16($sp)
+    lw   $s1, 12($sp)
+    lw   $s2,  8($sp)
+    lw   $s3,  4($sp)
+    lw   $s4,  0($sp)
+    addi $sp, $sp, 24
+    jr   $ra
+
 
