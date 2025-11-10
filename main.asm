@@ -20,10 +20,8 @@ M_word:    .word 7              # Filter length (M)
 # --------------------------------------------------------------------------------------------------
 # [SIGNALS]
 # --------------------------------------------------------------------------------------------------
-input_signal: .float 99.5, -1.2, 10.4, 1.2, 2434.5, 11.5, -0.5, 67.0, -1.5, 1.2
-
-desired_signal:
-	.float 100.0, -1.2, 10.9, 1.1, 2435.3, 11.0, -0.8, 66.0, -0.9, 1.1
+input_signal:   .space 40
+desired_signal: .space 40
 
 # --------------------------------------------------------------------------------------------------
 # [WORKSPACE ARRAYS]
@@ -52,11 +50,11 @@ mmse:
 lbl_hdr:      .asciiz "=== Wiener Filter Results ===\n"
 lbl_outseq:   .asciiz "Output sequence (y):\n"
 lbl_filteredoutput: .asciiz "Filtered output: "
-lbl_mmse:     .asciiz "\nMMSE: "
-space_str:   .asciiz " "
+lbl_mmse:   .asciiz "\nMMSE: "
+space_str:  .asciiz " "
+input_size_error: .asciiz "Error: size not match\n"
 
-newline:
-	.asciiz "\n"
+newline:    .asciiz "\n"
 
 # --------------------------------------------------------------------------------------------------
 # [I/O]
@@ -71,7 +69,8 @@ output_file: .asciiz "output.txt"
 zero_float: .float 0.0
 ten_float: .float 10.0 # i hate you i hate you i hate you i hate you kkk
 
-num_buf:      .space 32         # buffer for output file
+read_buf:   .space 1024 # buffer for input file
+num_buf:    .space 32   # buffer for output file
 
 # =====================================================================================================================================
 # [1] MAIN ROUTINE
@@ -85,6 +84,8 @@ la $t0, N_word
 lw $s0, 0($t0)          # t1 = N
 la $t1, M_word
 lw $s1, 0($t1)          # t3 = M
+
+jal read_input_and_desired_from_files
 
 # --- Call estimate_autocorrelation ---
 la $a0, input_signal       # base of x[n]
@@ -857,11 +858,345 @@ round1dp:
 # into the global array input_signal.
 # =====================================================================
 read_input_and_desired_from_files:
-# TODO: read input and desired and load into .data
+    addi $sp, $sp, -28
+    sw   $ra, 24($sp)
+    sw   $s0, 20($sp)   # N
+    sw   $s1, 16($sp)   # fd
+    sw   $s2, 12($sp)   # bytes read
+    sw   $s3,  8($sp)   # input count
+    sw   $s4,  4($sp)   # desired count
+    sw   $s5,  0($sp)   # flags: bit0 input, bit1 desired
+    lw   $s0, N_word
+    move $s3, $zero
+    move $s4, $zero
+    move $s5, $zero     # flags = 0
+    # read input.txt
+    li   $v0, 13
+    la   $a0, input_file
+    li   $a1, 0         # flags = read only
+    li   $a2, 0         # mode = default
+    syscall
+    move $s1, $v0   # fd
+    bltz $s1, read_desired
+    # syscall read
+    li   $v0, 14
+    move $a0, $s1       # a0 = fd
+    la   $a1, read_buf  # a1 = buffer
+    li   $a2, 1024      # a2 = max bytes
+    syscall
+    move $s2, $v0
+    # syscall close
+    li   $v0, 16
+    move $a0, $s1
+    syscall
+    blez $s2, read_desired
+    # parse buffer to floats
+    la   $a0, read_buf
+    move $a1, $s2
+    la   $a2, input_signal
+    move $a3, $s0
+    jal  parse_buffer_to_floats
+    move $s3, $v0        # count
+    move $t0, $v1        # overflow?
+    beqz $t0, read_desired
+    ori  $s5, $s5, 0x1   # set bit0 if overflow
 
+read_desired:
+    # read desired.txt
+    li   $v0, 13
+    la   $a0, desired_file
+    li   $a1, 0
+    li   $a2, 0
+    syscall
+    move $s1, $v0
+    bltz $s1, validate_sizes
+    # syscall read
+    li   $v0, 14
+    move $a0, $s1
+    la   $a1, read_buf
+    li   $a2, 1024
+    syscall
+    move $s2, $v0
+    # syscall close
+    li   $v0, 16
+    move $a0, $s1
+    syscall
+    blez $s2, validate_sizes
+    # parse buffer to floats
+    la   $a0, read_buf
+    move $a1, $s2
+    la   $a2, desired_signal
+    move $a3, $s0
+    jal  parse_buffer_to_floats
+    move $s4, $v0
+    move $t0, $v1
+    beqz $t0, validate_sizes
+    ori  $s5, $s5, 0x2   # set bit1 if overflow
+
+validate_sizes:
+    lw   $t0, N_word
+    bne  $s3, $t0, size_error
+    bne  $s4, $t0, size_error
+    bnez $s5, size_error
+    j    read_done
+
+size_error:
+    # write "Error: size not match\n" to output.txt
+    li   $v0, 13
+    la   $a0, output_file
+    li   $a1, 9       
+    syscall
+    move $t0, $v0   # fd
+    bltz $t0, print_then_exit
+    # syscall write
+    li   $v0, 15
+    move $a0, $t0   # fd
+    la   $a1, input_size_error
+    li   $a2, 22    # len("Error: size not match\n")
+    syscall
+    # syscall close
+    li   $v0, 16
+    move $a0, $t0
+    syscall
+
+print_then_exit:
+    # print to console
+    li   $v0, 4
+    la   $a0, input_size_error
+    syscall
+    li   $v0, 10
+    syscall
+
+read_done:
+    lw   $ra, 24($sp)
+    lw   $s0, 20($sp)
+    lw   $s1, 16($sp)
+    lw   $s2, 12($sp)
+    lw   $s3,  8($sp)
+    lw   $s4,  4($sp)
+    lw   $s5,  0($sp)
+    addi $sp, $sp, 28
+    jr   $ra
 
 # =====================================================================
-# HELPER-IO : write_output_signal_to_file
+# HELPER: parse_buffer_to_floats
+# PURPOSE:
+#   Parse up to 'max_count' floating-point numbers from a text buffer and
+#   store them into a destination float array. Accepts separators:
+#   space, tab, newline, carriage return, and comma.
+# INPUT:
+#   a0 = buf base
+#   a1 = bytes count
+#   a2 = dest base (float*)
+#   a3 = max_count (N)
+# OUTPUT:
+#   Stores up to N floats into dest
+# =====================================================================
+parse_buffer_to_floats:
+    addi $sp, $sp, -40
+    sw   $ra, 36($sp)
+    sw   $s0, 32($sp)   # current pointer
+    sw   $s1, 28($sp)   # end pointer
+    sw   $s2, 24($sp)   # destination pointer
+    sw   $s3, 20($sp)   # parsed count
+    sw   $s4, 16($sp)   # int part
+    sw   $s5, 12($sp)   # fraction part
+    sw   $s6,  8($sp)   # fraction length
+    sw   $s7,  4($sp)   # sign scalar
+    sw   $t9,  0($sp)   # overflow flag local
+    # initialize working pointers and counters
+    move $s0, $a0       # current pointer = buffer base
+    addu $s1, $a0, $a1  # end pointer = buffer base + length
+    move $s2, $a2       # destination pointer = destination base
+    move $s3, $zero     # parsed count = 0
+    move $t9, $zero     # overflow flag local = 0
+
+pb_loop:
+    bge  $s0, $s1, pb_done
+    bge  $s3, $a3, pb_overflow_scan
+    lbu  $t0, 0($s0)    # read current character
+    # skip separator characters
+    li $t1, 32       # ' '
+    beq $t0, $t1, pb_skip
+    li $t1, 9        # '\t'
+    beq $t0, $t1, pb_skip
+    li $t1, 10       # '\n'
+    beq $t0, $t1, pb_skip
+    li $t1, 13       # '\r'
+    beq $t0, $t1, pb_skip
+    li $t1, 44       # ','
+    beq $t0, $t1, pb_skip
+    # parse sign
+    li   $s7, 1
+    li   $t1, 45     # '-'
+    beq  $t0, $t1, pb_set_negative
+    li   $t1, 43     # '+'
+    beq  $t0, $t1, pb_set_positive
+    j    pb_after_sign
+
+pb_set_negative:
+    li   $s7, -1
+    addi $s0, $s0, 1
+    j    pb_after_sign
+
+pb_set_positive:
+    addi $s0, $s0, 1
+
+# # # Parse integer digits # # #
+pb_after_sign:
+    move $s4, $zero # int part
+
+pb_int:
+    bge  $s0, $s1, pb_fraction_check
+    lbu  $t0, 0($s0)
+    li   $t1, 48         # '0'
+    blt  $t0, $t1, pb_fraction_check
+    li   $t1, 57         # '9'
+    bgt  $t0, $t1, pb_fraction_check
+    # int part = int part * 10 + digit value
+    addi $t0, $t0, -48   # convert ASCII to numeric digit
+    mul  $s4, $s4, 10
+    addu $s4, $s4, $t0
+    # move to next character
+    addi $s0, $s0, 1
+    j    pb_int
+
+# # # Fraction part # # #
+pb_fraction_check:
+    move $s5, $zero     # fraction part = 0
+    move $s6, $zero     # fraction length = 0
+    # skip fraction parsing if not float
+    bge  $s0, $s1, pb_build
+    lbu  $t0, 0($s0)
+    li   $t1, 46        # '.'
+    bne  $t0, $t1, pb_build
+    # skip the decimal point '.'
+    addi $s0, $s0, 1
+
+pb_fraction_loop:
+    # stop fraction if end line
+    bge  $s0, $s1, pb_build
+    lbu  $t0, 0($s0)
+    li   $t1, 48         # '0'
+    blt  $t0, $t1, pb_build
+    li   $t1, 57         # '9'
+    bgt  $t0, $t1, pb_build
+    # frac = frac * 10 + digit
+    addi $t0, $t0, -48
+    mul  $s5, $s5, 10
+    addu $s5, $s5, $t0
+    addi $s6, $s6, 1
+    addi $s0, $s0, 1
+    j    pb_fraction_loop
+
+# # # Build float value # # #
+pb_build:
+    # convert int part to float
+    mtc1    $s4, $f0
+    cvt.s.w $f0, $f0
+    # skip if no fraction
+    beqz $s6, pb_apply_sign
+    # convert fraction part to float
+    mtc1    $s5, $f2
+    cvt.s.w $f2, $f2
+    li      $t0, 0      
+    l.s     $f4, ten_float       # f4 = 10.0
+
+pb_div_fraction:
+    beq  $t0, $s6, pb_add_fraction
+    div.s $f2, $f2, $f4
+    addi $t0, $t0, 1
+    j    pb_div_fraction
+
+pb_add_fraction:
+    add.s $f0, $f0, $f2
+
+# # # Apply sign and store # # #
+pb_apply_sign:
+    bltz $s7, pb_negative
+    j    pb_store
+
+pb_negative:
+    neg.s $f0, $f0
+
+pb_store:
+    # store the float value into destination array and increase parsed count
+    sll  $t0, $s3, 2    # byte offset = parsed count * 4
+    add  $t1, $s2, $t0  # destination address = destination base + byte offset
+    swc1 $f0, 0($t1)    # write float
+    addi $s3, $s3, 1    # parsed count++
+    j    pb_loop
+
+# # # Skip separator # # #
+pb_skip:
+    addi $s0, $s0, 1             
+    j    pb_loop
+
+pb_overflow_scan:
+    bge  $s0, $s1, pb_done              # stop if end of buffer
+    lbu  $t0, 0($s0)
+    li   $t1, 48                        # '0'
+    blt  $t0, $t1, pb_overflow_next
+    li   $t1, 57                        # '9'
+    bgt  $t0, $t1, pb_overflow_next
+    li   $t9, 1                         # overflow flag local = 1 (extra number exists)
+    j    pb_done
+
+pb_overflow_next:
+    addi $s0, $s0, 1
+    j    pb_overflow_scan
+
+pb_done:
+    move $v0, $s3        # return parsed count
+    move $v1, $t9        # return overflow flag local
+    lw   $ra, 36($sp)
+    lw   $s0, 32($sp)
+    lw   $s1, 28($sp)
+    lw   $s2, 24($sp)
+    lw   $s3, 20($sp)
+    lw   $s4, 16($sp)
+    lw   $s5, 12($sp)
+    lw   $s6,  8($sp)
+    lw   $s7,  4($sp)
+    lw   $t9,  0($sp)
+    addi $sp, $sp, 40
+    jr   $ra
+    addi $s0, $s0, 1
+    j    pb_loop
+
+# # # Scan rest to check if any numbers exist after reaching N # # #
+scan_extra_numbers:
+    bge  $s0, $s1, parse_done
+    lbu  $t0, 0($s0)
+    li   $t1, 48
+    blt  $t0, $t1, scan_skip_character
+    li   $t1, 57
+    bgt  $t0, $t1, scan_skip_character
+    li   $t9, 1 
+    j    parse_done
+
+scan_skip_character:
+    addi $s0, $s0, 1
+    j    scan_extra_numbers
+
+parse_done:
+    move $v0, $s3        # count
+    move $v1, $t9        # overflow flag
+    lw   $ra, 36($sp)
+    lw   $s0, 32($sp)
+    lw   $s1, 28($sp)
+    lw   $s2, 24($sp)
+    lw   $s3, 20($sp)
+    lw   $s4, 16($sp)
+    lw   $s5, 12($sp)
+    lw   $s6,  8($sp)
+    lw   $s7,  4($sp)
+    lw   $t9,  0($sp)
+    addi $sp, $sp, 40
+    jr   $ra
+
+# =====================================================================
+# FUNCTION : write_output_signal_to_file
 # PURPOSE  : Write the global array "output_signal" (length = N_word)
 # to a text file "output.txt" with values rounded to 1dp.
 # =====================================================================
@@ -893,7 +1228,7 @@ write_output_signal_to_file:
 
 # # # Filtered output # # #
 write_output_loop:
-    bge  $s3, $s0, write_output_done
+    bge  $s3, $s0, write_mmse
     # round y[n] to 1 decimal point
     sll  $t0, $s3, 2    # t0 = byte offset
     add  $t1, $s2, $t0  # t1 = address of y[n]
@@ -989,15 +1324,6 @@ print_int_digits:
     div  $t9, $t1
     mflo $t9
     j    print_int_digits
-
-write_output_done:
-    # write newline
-    li   $v0, 15
-    move $a0, $s1
-    la   $a1, newline
-    li   $a2, 1
-    syscall
-    j   write_mmse
 
 # # # MMSE # # #
 write_mmse:
