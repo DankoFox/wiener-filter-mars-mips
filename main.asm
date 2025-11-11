@@ -78,7 +78,6 @@ num_buf:    .space 32   # buffer for output file
 .text
 
 main:
-
 # Load N and M into registers
 la $t0, N_word
 lw $s0, 0($t0)          # t1 = N
@@ -940,25 +939,6 @@ validate_sizes:
     bnez $s5, size_error
     j    read_done
 
-size_error:
-    # write "Error: size not match\n" to output.txt
-    li   $v0, 13
-    la   $a0, output_file
-    li   $a1, 9       
-    syscall
-    move $t0, $v0   # fd
-    bltz $t0, print_then_exit
-    # syscall write
-    li   $v0, 15
-    move $a0, $t0   # fd
-    la   $a1, input_size_error
-    li   $a2, 22    # len("Error: size not match\n")
-    syscall
-    # syscall close
-    li   $v0, 16
-    move $a0, $t0
-    syscall
-
 print_then_exit:
     # print to console
     li   $v0, 4
@@ -1211,10 +1191,10 @@ write_output_signal_to_file:
     # open output.txt
     li   $v0, 13
     la   $a0, output_file
-    li   $a1, 9
+    li   $a1, 1
     syscall
     move $s1, $v0
-    bltz $s1, error_return
+    bltz $s1, open_error_return
     # load variables
     lw   $s0, N_word
     la   $s2, output_signal
@@ -1438,7 +1418,28 @@ mmse_fraction_part:
     addi $sp, $sp, 24
     jr   $ra
 
-error_return:
+# # # Error handler # # #
+size_error:
+    # write "Error: size not match\n" to output.txt
+    li   $v0, 13
+    la   $a0, output_file
+    li   $a1, 1       
+    syscall
+    move $t0, $v0   # fd
+    bltz $t0, print_then_exit
+    # syscall write
+    li   $v0, 15
+    move $a0, $t0   # fd
+    la   $a1, input_size_error
+    li   $a2, 22    # len("Error: size not match\n")
+    syscall
+    # syscall close
+    li   $v0, 16
+    move $a0, $t0
+    syscall
+    j    print_then_exit
+
+open_error_return:
     # if open failed, return quietly
     lw   $ra, 20($sp)
     lw   $s0, 16($sp)
@@ -1448,5 +1449,3 @@ error_return:
     lw   $s4,  0($sp)
     addi $sp, $sp, 24
     jr   $ra
-
-
