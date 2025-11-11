@@ -1,0 +1,4 @@
+MARS 4.5  Copyright 2003-2014 Pete Sanderson and Kenneth Vollmar
+
+Filtered output: 553.0 -383.3 458.3 -622.5 830.1 346.6 514.4 117.8 -774.4 604.4 
+MMSE: 0.2 

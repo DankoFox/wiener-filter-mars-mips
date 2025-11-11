@@ -1,0 +1,10 @@
+=== SUMMARY ===
+Total tests run: 1000
+Mean MMSE: 0.1137
+Std MMSE: 0.0827
+Min MMSE: 0.0000
+Max MMSE: 0.5000
+
+Mean filtered output across tests:
+[-16.4009 -17.3772  -5.9921 -25.6403   9.9642   0.4383  -6.2071  -7.3044
+ -29.3882  14.1841]
