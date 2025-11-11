@@ -125,39 +125,23 @@ jal  compute_mmse
 
 jal write_output_signal_to_file
 
-# === DEBUGGING ============================================
+# === PRINT RESULTS ============================================
 
-# [DEBUG]: print gamma_xx array
-la $a0, gamma_xx
+# Filtered output
+li   $v0, 4
+la   $a0, lbl_filteredoutput
+syscall
 
-move $a1, $s1             # length = M
-jal  print_float_array
-
-# [DEBUG]: print gamma_dx
-la $a0, gamma_dx
-
-move $a1, $s1
-jal  print_float_array
-
-# [DEBUG]: print R_matrix as M*M floats for debug:
-la $a0, R_matrix
-
-mul $a1, $s1, $s1    # a1 = M * M  (pseudo-instr; MARS supports this)
-jal print_float_array
-
-# [DEBUG]: print hopt matrix
-la $a0, optimize_coefficient
-
-move $a1, $s1
-jal  print_float_array
-
-# [DEBUG]: filtered output
 la $a0, output_signal
 
 move $a1, $s0
 jal  print_float_array
 
-# [DEBUG]: MMSE
+# MMSE
+li   $v0, 4
+la   $a0, lbl_mmse
+syscall
+
 la $a0, mmse
 
 li  $a1, 1
@@ -822,10 +806,6 @@ addi $t0, $t0, 1
 j    .print_loop
 
 .print_done:
-	li $v0, 4
-	la $a0, newline
-	syscall
-
 	lw   $ra, 4($sp)
 	lw   $s0, 0($sp)
 	addi $sp, $sp, 8
@@ -1203,7 +1183,7 @@ write_output_signal_to_file:
     li   $v0, 15
     move $a0, $s1	# fd
     la   $a1, lbl_filteredoutput
-    li   $a2, 18
+    li   $a2, 17
     syscall
 
 # # # Filtered output # # #
