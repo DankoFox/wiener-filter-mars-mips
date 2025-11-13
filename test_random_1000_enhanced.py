@@ -23,10 +23,12 @@ noise_types = ["white", "pink", "brown", "multi_tone", "impulse_spikes"]
 # ==============================
 # SIGNAL GENERATION
 # ==============================
+
+
 def generate_signals(noise_type="white"):
     """
     Generate desired signal (sine wave) and noisy input based on noise_type.
-    noise_type: "white", "pink", "brown", or "none"
+    noise_type: "white", "pink", "brown", "multi_tone", "impulse_spikes", or "none"
     """
     n = np.arange(10)
     freq = 0.05
@@ -48,29 +50,31 @@ def generate_signals(noise_type="white"):
         noise = np.cumsum(np.random.normal(0, 0.05, len(n)))
         noise = 0.3 * noise / np.std(noise)
     elif noise_type == "multi_tone":
-        # sum of a few sinusoids at different frequencies & amplitudes
-        freqs = [0.02, 0.07, 0.12]  # choose interfering tones
-        amps = [0.4, 0.25, 0.15]  # amplitudes for each tone
+        freqs = [0.02, 0.07, 0.12]
+        amps = [0.4, 0.25, 0.15]
         noise = np.zeros_like(n, dtype=float)
         for f, a in zip(freqs, amps):
             noise += a * np.sin(2 * np.pi * f * n + np.random.uniform(0, 2 * np.pi))
-        # add a bit of white to make it more realistic
         noise += np.random.normal(0, 0.05, len(n))
-        # normalize roughly to the ~0.3 scale used elsewhere
         noise = 0.3 * noise / (np.std(noise) + 1e-12)
     elif noise_type == "impulse_spikes":
-        # sparse large spikes
         noise = np.random.normal(0, 0.05, len(n))
         num_spikes = max(1, len(n) // 10)
         spike_positions = np.random.choice(len(n), num_spikes, replace=False)
         for p in spike_positions:
-            noise[p] += np.random.choice([-1.5, 1.5])  # large spike
+            noise[p] += np.random.choice([-1.5, 1.5])
+    elif noise_type == "none":
+        noise = np.zeros_like(n)
     else:
         raise ValueError(f"Unknown noise type: {noise_type}")
 
+    # --- Ensure noise has at least 0.1 in magnitude ---
+    # This preserves the sign
+    noise = np.sign(noise) * np.maximum(np.abs(noise), 0.1)
+
     noisy_signal = desired_signal + noise
 
-    # Save files as ONE LINE, SPACE-SEPARATED
+    # Save files as ONE LINE, SPACE-SEPARATED with 1 decimal
     np.savetxt("desired.txt", desired_signal.reshape(1, -1), fmt="%.1f", delimiter=" ")
     np.savetxt("input.txt", noisy_signal.reshape(1, -1), fmt="%.1f", delimiter=" ")
 
