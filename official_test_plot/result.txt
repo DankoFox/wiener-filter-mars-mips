@@ -1,0 +1,15 @@
+=== OVERALL SUMMARY ===
+Total successful tests: 1000 / 1000
+Mean MMSE: 0.0358
+Std MMSE:  0.0697
+Min MMSE:  0.0000
+Max MMSE:  0.5000
+
+=== SUMMARY BY NOISE TYPE ===
+                 mean    std    min    max  count
+NoiseType                                        
+brown          0.0370 0.0858 0.0000 0.5000    200
+impulse_spikes 0.0445 0.0546 0.0000 0.2000    200
+multi_tone     0.0595 0.0946 0.0000 0.4000    200
+pink           0.0290 0.0536 0.0000 0.3000    200
+white          0.0090 0.0287 0.0000 0.1000    200

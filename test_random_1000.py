@@ -18,22 +18,45 @@ all_filtered_outputs = []
 
 
 # Function to generate the desired signal and noisy signal
-def generate_signals():
-    # Generate a random desired signal (e.g., 10 values)
-    desired_signal = np.random.uniform(-1000, 1000, 10)
-    desired_signal = np.round(desired_signal, 1)  # Round to 1 decimal place
+def generate_signals(noise_type="white"):
+    """
+    Generate desired signal (sine wave) and noisy input based on noise_type.
+    noise_type: "white", "pink", "brown", or "none"
+    """
+    n = np.arange(10)
+    freq = 0.05
+    amplitude = 1.0
 
-    # Add some random white noise to the desired signal
-    noise = np.random.normal(0, 0.5, desired_signal.shape)  # Mean = 0, stddev = 0.5
+    # Desired clean sine wave
+    desired_signal = amplitude * np.sin(2 * np.pi * freq * n)
+
+    # Select noise type
+    if noise_type == "white":
+        noise = np.random.normal(0, 0.3, len(n))  # flat spectrum
+    elif noise_type == "pink":
+        # Generate 1/f pink noise
+        uneven = len(n) % 2
+        X = np.random.randn(len(n) // 2 + 1 + uneven) + 1j * np.random.randn(
+            len(n) // 2 + 1 + uneven
+        )
+        S = np.sqrt(np.arange(len(X)) + 1.0)  # 1/f amplitude scaling
+        y = np.fft.irfft(X / S).real
+        noise = y[: len(n)]
+        noise = 0.3 * noise / np.std(noise)
+    elif noise_type == "brown":
+        # Brownian noise (1/f^2)
+        noise = np.cumsum(np.random.normal(0, 0.05, len(n)))
+        noise = 0.3 * noise / np.std(noise)
+    elif noise_type == "none":
+        noise = np.zeros_like(n)
+    else:
+        raise ValueError(f"Unknown noise type: {noise_type}")
+
     noisy_signal = desired_signal + noise
-    noisy_signal = np.round(noisy_signal, 1)  # Round noisy signal to 1 decimal place
 
-    # Write desired signal and noisy signal to files
-    with open("desired.txt", "w") as f:
-        f.write(", ".join(map(str, desired_signal)) + "\n")
-
-    with open("input.txt", "w") as f:
-        f.write(", ".join(map(str, noisy_signal)) + "\n")
+    # Save files as ONE LINE, SPACE-SEPARATED
+    np.savetxt("desired.txt", desired_signal.reshape(1, -1), fmt="%.1f", delimiter=" ")
+    np.savetxt("input.txt", noisy_signal.reshape(1, -1), fmt="%.1f", delimiter=" ")
 
     return desired_signal, noisy_signal
 
@@ -79,10 +102,16 @@ def extract_output():
         return None, None
 
 
+noise_types = ["white", "pink", "brown", "none"]
+
+
 # Function to run MARS and capture the output
 def run_mars(test_num):
+    noise_type = noise_types[test_num % len(noise_types)]
+    print(f"Running test {test_num + 1} with {noise_type}...")
+
     # Generate desired and noisy signals for the current test
-    generate_signals()
+    generate_signals(noise_type=noise_type)
 
     # Run the MARS command using subprocess
     command = ["java", "-jar", mars_jar, asm_file]
@@ -107,7 +136,6 @@ def run_mars(test_num):
 # Loop to run the tests sequentially and store the results
 for i in range(num_tests):
     # Run the Mars command for each test
-    print(f"Running test {i + 1} of {num_tests}...")
 
     filtered_output, mmse = run_mars(i + 1)
 
