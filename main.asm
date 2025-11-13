@@ -1,5 +1,5 @@
 # ==================================================================================================
-# PROJECT  :   ̶S̶E̶K̶A̶I̶ Wiener Filter (M=7, N=10)
+# PROJECT  :   ̶S̶E̶K̶A̶I̶ Wiener Filter (M=10, N=10)
 # FILE     :  main.asm
 # --------------------------------------------------------------------------------------------------
 # STRUCTURE:
@@ -15,7 +15,7 @@
 # [PARAMETERS]
 # --------------------------------------------------------------------------------------------------
 N_word:    .word 10             # Number of samples (N)
-M_word:    .word 7              # Filter length (M)
+M_word:    .word 10              # Filter length (M)
 
 # --------------------------------------------------------------------------------------------------
 # [SIGNALS]
@@ -26,17 +26,17 @@ desired_signal: .space 40
 # --------------------------------------------------------------------------------------------------
 # [WORKSPACE ARRAYS]
 # --------------------------------------------------------------------------------------------------
-gamma_xx:  .float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0    # Autocorrelation results (length M)
-gamma_dx:  .float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0   # Cross-correlation (future use)
+gamma_xx:  .float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0    # Autocorrelation results (length M)
+gamma_dx:  .float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 # Cross-correlation (future use)
 
-R_matrix: .space 196  # R_matrix: 49 float (MxM = 7x7) Toeplitz matrix
+R_matrix: .space 400  # R_matrix: 100 float (MxM = 10x10) Toeplitz matrix
 
 # [Cholesky Solver Buffers] ------------------------------------------------------------------------
-L_matrix:      .space 196        # lower-triangular matrix L
+L_matrix:      .space 400        # lower-triangular matrix L
 temp_vector:      .float 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
 
 optimize_coefficient:
-	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+	.float 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
 # Outputs
 output_signal:     .float 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
@@ -54,7 +54,8 @@ lbl_mmse:   .asciiz "\nMMSE: "
 space_str:  .asciiz " "
 input_size_error: .asciiz "Error: size not match\n"
 
-newline:    .asciiz "\n"
+newline:
+	.asciiz "\n"
 
 # --------------------------------------------------------------------------------------------------
 # [I/O]
@@ -128,8 +129,8 @@ jal write_output_signal_to_file
 # === PRINT RESULTS ============================================
 
 # Filtered output
-li   $v0, 4
-la   $a0, lbl_filteredoutput
+li $v0, 4
+la $a0, lbl_filteredoutput
 syscall
 
 la $a0, output_signal
@@ -138,8 +139,8 @@ move $a1, $s0
 jal  print_float_array
 
 # MMSE
-li   $v0, 4
-la   $a0, lbl_mmse
+li $v0, 4
+la $a0, lbl_mmse
 syscall
 
 la $a0, mmse
@@ -837,323 +838,340 @@ round1dp:
 # into the global array input_signal.
 # =====================================================================
 read_input_and_desired_from_files:
-    addi $sp, $sp, -28
-    sw   $ra, 24($sp)
-    sw   $s0, 20($sp)   # N
-    sw   $s1, 16($sp)   # fd
-    sw   $s2, 12($sp)   # bytes read
-    sw   $s3,  8($sp)   # input count
-    sw   $s4,  4($sp)   # desired count
-    sw   $s5,  0($sp)   # flags: bit0 input, bit1 desired
-    lw   $s0, N_word
-    move $s3, $zero
-    move $s4, $zero
-    move $s5, $zero     # flags = 0
-    # read input.txt
-    li   $v0, 13
-    la   $a0, input_file
-    li   $a1, 0         # flags = read only
-    li   $a2, 0         # mode = default
-    syscall
-    move $s1, $v0   # fd
-    bltz $s1, read_desired
-    # syscall read
-    li   $v0, 14
-    move $a0, $s1       # a0 = fd
-    la   $a1, read_buf  # a1 = buffer
-    li   $a2, 1024      # a2 = max bytes
-    syscall
-    move $s2, $v0
-    # syscall close
-    li   $v0, 16
-    move $a0, $s1
-    syscall
-    blez $s2, read_desired
-    # parse buffer to floats
-    la   $a0, read_buf
-    move $a1, $s2
-    la   $a2, input_signal
-    move $a3, $s0
-    jal  parse_buffer_to_floats
-    move $s3, $v0        # count
-    move $t0, $v1        # overflow?
-    beqz $t0, read_desired
-    ori  $s5, $s5, 0x1   # set bit0 if overflow
+	addi $sp, $sp, -28
+	sw   $ra, 24($sp)
+	sw   $s0, 20($sp)   # N
+	sw   $s1, 16($sp)   # fd
+	sw   $s2, 12($sp)   # bytes read
+	sw   $s3, 8($sp)   # input count
+	sw   $s4, 4($sp)   # desired count
+	sw   $s5, 0($sp)   # flags: bit0 input, bit1 desired
+	lw   $s0, N_word
+	move $s3, $zero
+	move $s4, $zero
+	move $s5, $zero     # flags = 0
+
+# read input.txt
+li   $v0, 13
+la   $a0, input_file
+li   $a1, 0         # flags = read only
+li   $a2, 0         # mode = default
+syscall
+move $s1, $v0   # fd
+bltz $s1, read_desired
+
+# syscall read
+li   $v0, 14
+move $a0, $s1       # a0 = fd
+la   $a1, read_buf  # a1 = buffer
+li   $a2, 1024      # a2 = max bytes
+syscall
+move $s2, $v0
+
+# syscall close
+li   $v0, 16
+move $a0, $s1
+syscall
+blez $s2, read_desired
+
+# parse buffer to floats
+la   $a0, read_buf
+move $a1, $s2
+la   $a2, input_signal
+move $a3, $s0
+jal  parse_buffer_to_floats
+move $s3, $v0        # count
+move $t0, $v1        # overflow?
+beqz $t0, read_desired
+ori  $s5, $s5, 0x1   # set bit0 if overflow
 
 read_desired:
-    # read desired.txt
-    li   $v0, 13
-    la   $a0, desired_file
-    li   $a1, 0
-    li   $a2, 0
-    syscall
-    move $s1, $v0
-    bltz $s1, validate_sizes
-    # syscall read
-    li   $v0, 14
-    move $a0, $s1
-    la   $a1, read_buf
-    li   $a2, 1024
-    syscall
-    move $s2, $v0
-    # syscall close
-    li   $v0, 16
-    move $a0, $s1
-    syscall
-    blez $s2, validate_sizes
-    # parse buffer to floats
-    la   $a0, read_buf
-    move $a1, $s2
-    la   $a2, desired_signal
-    move $a3, $s0
-    jal  parse_buffer_to_floats
-    move $s4, $v0
-    move $t0, $v1
-    beqz $t0, validate_sizes
-    ori  $s5, $s5, 0x2   # set bit1 if overflow
+# read desired.txt
+li   $v0, 13
+la   $a0, desired_file
+li   $a1, 0
+li   $a2, 0
+syscall
+move $s1, $v0
+bltz $s1, validate_sizes
+
+# syscall read
+li   $v0, 14
+move $a0, $s1
+la   $a1, read_buf
+li   $a2, 1024
+syscall
+move $s2, $v0
+
+# syscall close
+li   $v0, 16
+move $a0, $s1
+syscall
+blez $s2, validate_sizes
+
+# parse buffer to floats
+la   $a0, read_buf
+move $a1, $s2
+la   $a2, desired_signal
+move $a3, $s0
+jal  parse_buffer_to_floats
+move $s4, $v0
+move $t0, $v1
+beqz $t0, validate_sizes
+ori  $s5, $s5, 0x2   # set bit1 if overflow
 
 validate_sizes:
-    lw   $t0, N_word
-    bne  $s3, $t0, size_error
-    bne  $s4, $t0, size_error
-    bnez $s5, size_error
-    j    read_done
+	lw   $t0, N_word
+	bne  $s3, $t0, size_error
+	bne  $s4, $t0, size_error
+	bnez $s5, size_error
+	j    read_done
 
 print_then_exit:
-    # print to console
-    li   $v0, 4
-    la   $a0, input_size_error
-    syscall
-    li   $v0, 10
-    syscall
+# print to console
+li $v0, 4
+la $a0, input_size_error
+syscall
+li $v0, 10
+syscall
 
 read_done:
-    lw   $ra, 24($sp)
-    lw   $s0, 20($sp)
-    lw   $s1, 16($sp)
-    lw   $s2, 12($sp)
-    lw   $s3,  8($sp)
-    lw   $s4,  4($sp)
-    lw   $s5,  0($sp)
-    addi $sp, $sp, 28
-    jr   $ra
+	lw   $ra, 24($sp)
+	lw   $s0, 20($sp)
+	lw   $s1, 16($sp)
+	lw   $s2, 12($sp)
+	lw   $s3, 8($sp)
+	lw   $s4, 4($sp)
+	lw   $s5, 0($sp)
+	addi $sp, $sp, 28
+	jr   $ra
 
 # =====================================================================
 # HELPER: parse_buffer_to_floats
 # PURPOSE:
-#   Parse up to 'max_count' floating-point numbers from a text buffer and
-#   store them into a destination float array. Accepts separators:
-#   space, tab, newline, carriage return, and comma.
+# Parse up to 'max_count' floating-point numbers from a text buffer and
+# store them into a destination float array. Accepts separators:
+# space, tab, newline, carriage return, and comma.
 # INPUT:
-#   a0 = buf base
-#   a1 = bytes count
-#   a2 = dest base (float*)
-#   a3 = max_count (N)
+# a0 = buf base
+# a1 = bytes count
+# a2 = dest base (float*)
+# a3 = max_count (N)
 # OUTPUT:
-#   Stores up to N floats into dest
+# Stores up to N floats into dest
 # =====================================================================
 parse_buffer_to_floats:
-    addi $sp, $sp, -40
-    sw   $ra, 36($sp)
-    sw   $s0, 32($sp)   # current pointer
-    sw   $s1, 28($sp)   # end pointer
-    sw   $s2, 24($sp)   # destination pointer
-    sw   $s3, 20($sp)   # parsed count
-    sw   $s4, 16($sp)   # int part
-    sw   $s5, 12($sp)   # fraction part
-    sw   $s6,  8($sp)   # fraction length
-    sw   $s7,  4($sp)   # sign scalar
-    sw   $t9,  0($sp)   # overflow flag local
-    # initialize working pointers and counters
-    move $s0, $a0       # current pointer = buffer base
-    addu $s1, $a0, $a1  # end pointer = buffer base + length
-    move $s2, $a2       # destination pointer = destination base
-    move $s3, $zero     # parsed count = 0
-    move $t9, $zero     # overflow flag local = 0
+	addi $sp, $sp, -40
+	sw   $ra, 36($sp)
+	sw   $s0, 32($sp)   # current pointer
+	sw   $s1, 28($sp)   # end pointer
+	sw   $s2, 24($sp)   # destination pointer
+	sw   $s3, 20($sp)   # parsed count
+	sw   $s4, 16($sp)   # int part
+	sw   $s5, 12($sp)   # fraction part
+	sw   $s6, 8($sp)   # fraction length
+	sw   $s7, 4($sp)   # sign scalar
+	sw   $t9, 0($sp)   # overflow flag local
+
+# initialize working pointers and counters
+move $s0, $a0       # current pointer = buffer base
+addu $s1, $a0, $a1  # end pointer = buffer base + length
+move $s2, $a2       # destination pointer = destination base
+move $s3, $zero     # parsed count = 0
+move $t9, $zero     # overflow flag local = 0
 
 pb_loop:
-    bge  $s0, $s1, pb_done
-    bge  $s3, $a3, pb_overflow_scan
-    lbu  $t0, 0($s0)    # read current character
-    # skip separator characters
-    li $t1, 32       # ' '
-    beq $t0, $t1, pb_skip
-    li $t1, 9        # '\t'
-    beq $t0, $t1, pb_skip
-    li $t1, 10       # '\n'
-    beq $t0, $t1, pb_skip
-    li $t1, 13       # '\r'
-    beq $t0, $t1, pb_skip
-    li $t1, 44       # ','
-    beq $t0, $t1, pb_skip
-    # parse sign
-    li   $s7, 1
-    li   $t1, 45     # '-'
-    beq  $t0, $t1, pb_set_negative
-    li   $t1, 43     # '+'
-    beq  $t0, $t1, pb_set_positive
-    j    pb_after_sign
+	bge $s0, $s1, pb_done
+	bge $s3, $a3, pb_overflow_scan
+	lbu $t0, 0($s0)    # read current character
+
+# skip separator characters
+li  $t1, 32       # ' '
+beq $t0, $t1, pb_skip
+li  $t1, 9        # '\t'
+beq $t0, $t1, pb_skip
+li  $t1, 10       # '\n'
+beq $t0, $t1, pb_skip
+li  $t1, 13       # '\r'
+beq $t0, $t1, pb_skip
+li  $t1, 44       # ','
+beq $t0, $t1, pb_skip
+
+# parse sign
+li  $s7, 1
+li  $t1, 45     # '-'
+beq $t0, $t1, pb_set_negative
+li  $t1, 43     # '+'
+beq $t0, $t1, pb_set_positive
+j   pb_after_sign
 
 pb_set_negative:
-    li   $s7, -1
-    addi $s0, $s0, 1
-    j    pb_after_sign
+	li   $s7, -1
+	addi $s0, $s0, 1
+	j    pb_after_sign
 
 pb_set_positive:
-    addi $s0, $s0, 1
+	addi $s0, $s0, 1
 
 # # # Parse integer digits # # #
 pb_after_sign:
-    move $s4, $zero # int part
+	move $s4, $zero # int part
 
 pb_int:
-    bge  $s0, $s1, pb_fraction_check
-    lbu  $t0, 0($s0)
-    li   $t1, 48         # '0'
-    blt  $t0, $t1, pb_fraction_check
-    li   $t1, 57         # '9'
-    bgt  $t0, $t1, pb_fraction_check
-    # int part = int part * 10 + digit value
-    addi $t0, $t0, -48   # convert ASCII to numeric digit
-    mul  $s4, $s4, 10
-    addu $s4, $s4, $t0
-    # move to next character
-    addi $s0, $s0, 1
-    j    pb_int
+	bge $s0, $s1, pb_fraction_check
+	lbu $t0, 0($s0)
+	li  $t1, 48         # '0'
+	blt $t0, $t1, pb_fraction_check
+	li  $t1, 57         # '9'
+	bgt $t0, $t1, pb_fraction_check
+
+# int part = int part * 10 + digit value
+addi $t0, $t0, -48   # convert ASCII to numeric digit
+mul  $s4, $s4, 10
+addu $s4, $s4, $t0
+
+# move to next character
+addi $s0, $s0, 1
+j    pb_int
 
 # # # Fraction part # # #
 pb_fraction_check:
-    move $s5, $zero     # fraction part = 0
-    move $s6, $zero     # fraction length = 0
-    # skip fraction parsing if not float
-    bge  $s0, $s1, pb_build
-    lbu  $t0, 0($s0)
-    li   $t1, 46        # '.'
-    bne  $t0, $t1, pb_build
-    # skip the decimal point '.'
-    addi $s0, $s0, 1
+	move $s5, $zero     # fraction part = 0
+	move $s6, $zero     # fraction length = 0
+
+# skip fraction parsing if not float
+bge $s0, $s1, pb_build
+lbu $t0, 0($s0)
+li  $t1, 46        # '.'
+bne $t0, $t1, pb_build
+
+# skip the decimal point '.'
+addi $s0, $s0, 1
 
 pb_fraction_loop:
-    # stop fraction if end line
-    bge  $s0, $s1, pb_build
-    lbu  $t0, 0($s0)
-    li   $t1, 48         # '0'
-    blt  $t0, $t1, pb_build
-    li   $t1, 57         # '9'
-    bgt  $t0, $t1, pb_build
-    # frac = frac * 10 + digit
-    addi $t0, $t0, -48
-    mul  $s5, $s5, 10
-    addu $s5, $s5, $t0
-    addi $s6, $s6, 1
-    addi $s0, $s0, 1
-    j    pb_fraction_loop
+# stop fraction if end line
+bge $s0, $s1, pb_build
+lbu $t0, 0($s0)
+li  $t1, 48         # '0'
+blt $t0, $t1, pb_build
+li  $t1, 57         # '9'
+bgt $t0, $t1, pb_build
+
+# frac = frac * 10 + digit
+addi $t0, $t0, -48
+mul  $s5, $s5, 10
+addu $s5, $s5, $t0
+addi $s6, $s6, 1
+addi $s0, $s0, 1
+j    pb_fraction_loop
 
 # # # Build float value # # #
 pb_build:
-    # convert int part to float
-    mtc1    $s4, $f0
-    cvt.s.w $f0, $f0
-    # skip if no fraction
-    beqz $s6, pb_apply_sign
-    # convert fraction part to float
-    mtc1    $s5, $f2
-    cvt.s.w $f2, $f2
-    li      $t0, 0      
-    l.s     $f4, ten_float       # f4 = 10.0
+# convert int part to float
+mtc1    $s4, $f0
+cvt.s.w $f0, $f0
+
+# skip if no fraction
+beqz $s6, pb_apply_sign
+
+# convert fraction part to float
+mtc1    $s5, $f2
+cvt.s.w $f2, $f2
+li      $t0, 0
+l.s     $f4, ten_float       # f4 = 10.0
 
 pb_div_fraction:
-    beq  $t0, $s6, pb_add_fraction
-    div.s $f2, $f2, $f4
-    addi $t0, $t0, 1
-    j    pb_div_fraction
+	beq   $t0, $s6, pb_add_fraction
+	div.s $f2, $f2, $f4
+	addi  $t0, $t0, 1
+	j     pb_div_fraction
 
 pb_add_fraction:
-    add.s $f0, $f0, $f2
+	add.s $f0, $f0, $f2
 
 # # # Apply sign and store # # #
 pb_apply_sign:
-    bltz $s7, pb_negative
-    j    pb_store
+	bltz $s7, pb_negative
+	j    pb_store
 
 pb_negative:
-    neg.s $f0, $f0
+	neg.s $f0, $f0
 
 pb_store:
-    # store the float value into destination array and increase parsed count
-    sll  $t0, $s3, 2    # byte offset = parsed count * 4
-    add  $t1, $s2, $t0  # destination address = destination base + byte offset
-    swc1 $f0, 0($t1)    # write float
-    addi $s3, $s3, 1    # parsed count++
-    j    pb_loop
+# store the float value into destination array and increase parsed count
+sll  $t0, $s3, 2    # byte offset = parsed count * 4
+add  $t1, $s2, $t0  # destination address = destination base + byte offset
+swc1 $f0, 0($t1)    # write float
+addi $s3, $s3, 1    # parsed count++
+j    pb_loop
 
 # # # Skip separator # # #
 pb_skip:
-    addi $s0, $s0, 1             
-    j    pb_loop
+	addi $s0, $s0, 1
+	j    pb_loop
 
 pb_overflow_scan:
-    bge  $s0, $s1, pb_done              # stop if end of buffer
-    lbu  $t0, 0($s0)
-    li   $t1, 48                        # '0'
-    blt  $t0, $t1, pb_overflow_next
-    li   $t1, 57                        # '9'
-    bgt  $t0, $t1, pb_overflow_next
-    li   $t9, 1                         # overflow flag local = 1 (extra number exists)
-    j    pb_done
+	bge $s0, $s1, pb_done              # stop if end of buffer
+	lbu $t0, 0($s0)
+	li  $t1, 48                        # '0'
+	blt $t0, $t1, pb_overflow_next
+	li  $t1, 57                        # '9'
+	bgt $t0, $t1, pb_overflow_next
+	li  $t9, 1                         # overflow flag local = 1 (extra number exists)
+	j   pb_done
 
 pb_overflow_next:
-    addi $s0, $s0, 1
-    j    pb_overflow_scan
+	addi $s0, $s0, 1
+	j    pb_overflow_scan
 
 pb_done:
-    move $v0, $s3        # return parsed count
-    move $v1, $t9        # return overflow flag local
-    lw   $ra, 36($sp)
-    lw   $s0, 32($sp)
-    lw   $s1, 28($sp)
-    lw   $s2, 24($sp)
-    lw   $s3, 20($sp)
-    lw   $s4, 16($sp)
-    lw   $s5, 12($sp)
-    lw   $s6,  8($sp)
-    lw   $s7,  4($sp)
-    lw   $t9,  0($sp)
-    addi $sp, $sp, 40
-    jr   $ra
-    addi $s0, $s0, 1
-    j    pb_loop
+	move $v0, $s3        # return parsed count
+	move $v1, $t9        # return overflow flag local
+	lw   $ra, 36($sp)
+	lw   $s0, 32($sp)
+	lw   $s1, 28($sp)
+	lw   $s2, 24($sp)
+	lw   $s3, 20($sp)
+	lw   $s4, 16($sp)
+	lw   $s5, 12($sp)
+	lw   $s6, 8($sp)
+	lw   $s7, 4($sp)
+	lw   $t9, 0($sp)
+	addi $sp, $sp, 40
+	jr   $ra
+	addi $s0, $s0, 1
+	j    pb_loop
 
 # # # Scan rest to check if any numbers exist after reaching N # # #
 scan_extra_numbers:
-    bge  $s0, $s1, parse_done
-    lbu  $t0, 0($s0)
-    li   $t1, 48
-    blt  $t0, $t1, scan_skip_character
-    li   $t1, 57
-    bgt  $t0, $t1, scan_skip_character
-    li   $t9, 1 
-    j    parse_done
+	bge $s0, $s1, parse_done
+	lbu $t0, 0($s0)
+	li  $t1, 48
+	blt $t0, $t1, scan_skip_character
+	li  $t1, 57
+	bgt $t0, $t1, scan_skip_character
+	li  $t9, 1
+	j   parse_done
 
 scan_skip_character:
-    addi $s0, $s0, 1
-    j    scan_extra_numbers
+	addi $s0, $s0, 1
+	j    scan_extra_numbers
 
 parse_done:
-    move $v0, $s3        # count
-    move $v1, $t9        # overflow flag
-    lw   $ra, 36($sp)
-    lw   $s0, 32($sp)
-    lw   $s1, 28($sp)
-    lw   $s2, 24($sp)
-    lw   $s3, 20($sp)
-    lw   $s4, 16($sp)
-    lw   $s5, 12($sp)
-    lw   $s6,  8($sp)
-    lw   $s7,  4($sp)
-    lw   $t9,  0($sp)
-    addi $sp, $sp, 40
-    jr   $ra
+	move $v0, $s3        # count
+	move $v1, $t9        # overflow flag
+	lw   $ra, 36($sp)
+	lw   $s0, 32($sp)
+	lw   $s1, 28($sp)
+	lw   $s2, 24($sp)
+	lw   $s3, 20($sp)
+	lw   $s4, 16($sp)
+	lw   $s5, 12($sp)
+	lw   $s6, 8($sp)
+	lw   $s7, 4($sp)
+	lw   $t9, 0($sp)
+	addi $sp, $sp, 40
+	jr   $ra
 
 # =====================================================================
 # FUNCTION : write_output_signal_to_file
@@ -1161,271 +1179,292 @@ parse_done:
 # to a text file "output.txt" with values rounded to 1dp.
 # =====================================================================
 write_output_signal_to_file:
-    addi $sp, $sp, -24
-    sw   $ra, 20($sp)
-    sw   $s0, 16($sp)   # N
-    sw   $s1, 12($sp)   # fd
-    sw   $s2,  8($sp)   # base address of y
-    sw   $s3,  4($sp)   # loop index
-    sw   $s4,  0($sp)   # temp
-    # open output.txt
-    li   $v0, 13
-    la   $a0, output_file
-    li   $a1, 1
-    syscall
-    move $s1, $v0
-    bltz $s1, open_error_return
-    # load variables
-    lw   $s0, N_word
-    la   $s2, output_signal
-    move $s3, $zero		# n = 0
-    # print "Filtered output: "
-    li   $v0, 15
-    move $a0, $s1	# fd
-    la   $a1, lbl_filteredoutput
-    li   $a2, 17
-    syscall
+	addi $sp, $sp, -24
+	sw   $ra, 20($sp)
+	sw   $s0, 16($sp)   # N
+	sw   $s1, 12($sp)   # fd
+	sw   $s2, 8($sp)   # base address of y
+	sw   $s3, 4($sp)   # loop index
+	sw   $s4, 0($sp)   # temp
+
+# open output.txt
+li   $v0, 13
+la   $a0, output_file
+li   $a1, 1
+syscall
+move $s1, $v0
+bltz $s1, open_error_return
+
+# load variables
+lw   $s0, N_word
+la   $s2, output_signal
+move $s3, $zero  # n = 0
+
+# print "Filtered output: "
+li   $v0, 15
+move $a0, $s1 # fd
+la   $a1, lbl_filteredoutput
+li   $a2, 17
+syscall
 
 # # # Filtered output # # #
 write_output_loop:
-    bge  $s3, $s0, write_mmse
-    # round y[n] to 1 decimal point
-    sll  $t0, $s3, 2    # t0 = byte offset
-    add  $t1, $s2, $t0  # t1 = address of y[n]
-    lwc1 $f12, 0($t1)
-    jal  round1dp	    # $f0 = rounded result
-    # multiply by 10 to shift decimal place
-    l.s  $f14, ten_float
-    mul.s $f16, $f0, $f14
-    round.w.s $f18, $f16 	
-    mfc1 $t2, $f18	# t2 = int result
-    # build string float "[-]ddd.d"
-    la   $t5, num_buf   # t5 = buffer pointer
-    move $t6, $zero		# t6 = len = 0
-    # check if number is negative
-    bltz $t2, write_negative_result
-    j write_positive_result
+	bge $s3, $s0, write_mmse
+
+# round y[n] to 1 decimal point
+sll  $t0, $s3, 2    # t0 = byte offset
+add  $t1, $s2, $t0  # t1 = address of y[n]
+lwc1 $f12, 0($t1)
+jal  round1dp     # $f0 = rounded result
+
+# multiply by 10 to shift decimal place
+l.s       $f14, ten_float
+mul.s     $f16, $f0, $f14
+round.w.s $f18, $f16
+mfc1      $t2, $f18 # t2 = int result
+
+# build string float "[-]ddd.d"
+la   $t5, num_buf   # t5 = buffer pointer
+move $t6, $zero  # t6 = len = 0
+
+# check if number is negative
+bltz $t2, write_negative_result
+j    write_positive_result
 
 write_negative_result:
-    neg  $t3, $t2
-    li   $t4, 45    # ASCII '-'
-    sb   $t4, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    j    handle_integer_and_fraction
+	neg  $t3, $t2
+	li   $t4, 45    # ASCII '-'
+	sb   $t4, 0($t5)
+	addi $t5, $t5, 1
+	addi $t6, $t6, 1
+	j    handle_integer_and_fraction
 
 write_positive_result:
-    move $t3, $t2
-    j    handle_integer_and_fraction
+	move $t3, $t2
+	j    handle_integer_and_fraction
 
 handle_integer_and_fraction:
-    li   $t4, 10
-    div  $t3, $t4
-    mflo $t7    # t7 = int part = t3 / 10
-    mfhi $t8    # t8 = fraction digit = t3 % 10
-    # print int part
-    bnez $t7, handle_int_part
-    li   $t9, 48    # ASCII for '0'
-    sb   $t9, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    j    handle_fraction_part
+	li   $t4, 10
+	div  $t3, $t4
+	mflo $t7    # t7 = int part = t3 / 10
+	mfhi $t8    # t8 = fraction digit = t3 % 10
+
+# print int part
+bnez $t7, handle_int_part
+li   $t9, 48    # ASCII for '0'
+sb   $t9, 0($t5)
+addi $t5, $t5, 1
+addi $t6, $t6, 1
+j    handle_fraction_part
 
 handle_fraction_part:
-    # store the decimal point '.'
-    li   $t2, 46    # ASCII for '.'
-    sb   $t2, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    # store the fractional digit
-    addi $t2, $t8, 48   # convert fraction to ASCII
-    sb   $t2, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    # store space after the number
-    li   $t2, 32    # ASCII for ' '
-    sb   $t2, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    # write buffer to file
-    li   $v0, 15
-    move $a0, $s1   # fd
-    la   $a1, num_buf
-    move $a2, $t6
-    syscall
-    # increment loop index n++
-    addi $s3, $s3, 1
-    j    write_output_loop
+# store the decimal point '.'
+li   $t2, 46    # ASCII for '.'
+sb   $t2, 0($t5)
+addi $t5, $t5, 1
+addi $t6, $t6, 1
+
+# store the fractional digit
+addi $t2, $t8, 48   # convert fraction to ASCII
+sb   $t2, 0($t5)
+addi $t5, $t5, 1
+addi $t6, $t6, 1
+
+# store space after the number
+li   $t2, 32    # ASCII for ' '
+sb   $t2, 0($t5)
+addi $t5, $t5, 1
+addi $t6, $t6, 1
+
+# write buffer to file
+li   $v0, 15
+move $a0, $s1   # fd
+la   $a1, num_buf
+move $a2, $t6
+syscall
+
+# increment loop index n++
+addi $s3, $s3, 1
+j    write_output_loop
 
 handle_int_part:
-    li   $t9, 1
-    j power_found
+	li $t9, 1
+	j  power_found
 
 power_found:
-    move $t0, $t7
-    div  $t0, $t9
-    mflo $t0
-    li   $t1, 10
-    blt  $t0, $t1, print_int_digits
-    mul  $t9, $t9, $t1
-    j    power_found
+	move $t0, $t7
+	div  $t0, $t9
+	mflo $t0
+	li   $t1, 10
+	blt  $t0, $t1, print_int_digits
+	mul  $t9, $t9, $t1
+	j    power_found
 
 print_int_digits:
-    beq  $t9, $zero, handle_fraction_part
-    move $t0, $t7
-    div  $t0, $t9
-    mflo $t2
-    mfhi $t7
-    addi $t2, $t2, 48   # convert int to ASCII
-    sb   $t2, 0($t5)    # store digit in num_buf
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    li   $t1, 10
-    div  $t9, $t1
-    mflo $t9
-    j    print_int_digits
+	beq  $t9, $zero, handle_fraction_part
+	move $t0, $t7
+	div  $t0, $t9
+	mflo $t2
+	mfhi $t7
+	addi $t2, $t2, 48   # convert int to ASCII
+	sb   $t2, 0($t5)    # store digit in num_buf
+	addi $t5, $t5, 1
+	addi $t6, $t6, 1
+	li   $t1, 10
+	div  $t9, $t1
+	mflo $t9
+	j    print_int_digits
 
 # # # MMSE # # #
 write_mmse:
-    # write prefix "MMSE: "
-    li   $v0, 15
-    move $a0, $s1
-    la   $a1, lbl_mmse
-    li   $a2, 7
-    syscall
-    # write MMSE
-    la   $t0, mmse
-    lwc1 $f12, 0($t0)
-    jal  round1dp
-    l.s  $f14, ten_float
-    mul.s $f16, $f0, $f14
-    round.w.s $f18, $f16
-    mfc1 $t2, $f18  # t2 = mmse * 10
-    # build string "[-]ddd.d\n"
-    la   $t5, num_buf
-    move $t6, $zero
-    bltz $t2, negative_mmse
-    j    positive_mmse
+# write prefix "MMSE: "
+li   $v0, 15
+move $a0, $s1
+la   $a1, lbl_mmse
+li   $a2, 7
+syscall
+
+# write MMSE
+la        $t0, mmse
+lwc1      $f12, 0($t0)
+jal       round1dp
+l.s       $f14, ten_float
+mul.s     $f16, $f0, $f14
+round.w.s $f18, $f16
+mfc1      $t2, $f18  # t2 = mmse * 10
+
+# build string "[-]ddd.d\n"
+la   $t5, num_buf
+move $t6, $zero
+bltz $t2, negative_mmse
+j    positive_mmse
 
 negative_mmse:
-    neg  $t3, $t2
-    li   $t4, 45    # ASCII for '-'
-    sb   $t4, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    # write MMSE digits
-    li   $t4, 10
-    div  $t3, $t4
-    mflo $t7
-    mfhi $t8
-    bnez $t7, mmse_int_part
-    li   $t9, 48    # ASCII for '0'
-    sb   $t9, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    j    mmse_fraction_part
+	neg  $t3, $t2
+	li   $t4, 45    # ASCII for '-'
+	sb   $t4, 0($t5)
+	addi $t5, $t5, 1
+	addi $t6, $t6, 1
+
+# write MMSE digits
+li   $t4, 10
+div  $t3, $t4
+mflo $t7
+mfhi $t8
+bnez $t7, mmse_int_part
+li   $t9, 48    # ASCII for '0'
+sb   $t9, 0($t5)
+addi $t5, $t5, 1
+addi $t6, $t6, 1
+j    mmse_fraction_part
 
 positive_mmse:
-    move $t3, $t2
-    li   $t4, 10
-    div  $t3, $t4
-    mflo $t7    # integer part
-    mfhi $t8    # fraction digit
-    bnez $t7, mmse_int_part
-    li   $t9, 48    # ASCII for '0'
-    sb   $t9, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    j    mmse_fraction_part
+	move $t3, $t2
+	li   $t4, 10
+	div  $t3, $t4
+	mflo $t7    # integer part
+	mfhi $t8    # fraction digit
+	bnez $t7, mmse_int_part
+	li   $t9, 48    # ASCII for '0'
+	sb   $t9, 0($t5)
+	addi $t5, $t5, 1
+	addi $t6, $t6, 1
+	j    mmse_fraction_part
 
 mmse_int_part:
-    li  $t9, 1
-    j   mmse_find_pow
+	li $t9, 1
+	j  mmse_find_pow
 
 mmse_find_pow:
-    move $t0, $t7
-    div  $t0, $t9
-    mflo $t0
-    li   $t1, 10
-    blt  $t0, $t1, mmse_print_digits
-    mul  $t9, $t9, $t1
-    j    mmse_find_pow
+	move $t0, $t7
+	div  $t0, $t9
+	mflo $t0
+	li   $t1, 10
+	blt  $t0, $t1, mmse_print_digits
+	mul  $t9, $t9, $t1
+	j    mmse_find_pow
 
 mmse_print_digits:
-    beq  $t9, $zero, mmse_fraction_part
-    move $t0, $t7
-    div  $t0, $t9
-    mflo $t2
-    mfhi $t7
-    addi $t2, $t2, 48
-    sb   $t2, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    li   $t1, 10
-    div  $t9, $t1
-    mflo $t9
-    j    mmse_print_digits
+	beq  $t9, $zero, mmse_fraction_part
+	move $t0, $t7
+	div  $t0, $t9
+	mflo $t2
+	mfhi $t7
+	addi $t2, $t2, 48
+	sb   $t2, 0($t5)
+	addi $t5, $t5, 1
+	addi $t6, $t6, 1
+	li   $t1, 10
+	div  $t9, $t1
+	mflo $t9
+	j    mmse_print_digits
 
 mmse_fraction_part:
-    li   $t2, 46    # ASCII for '.'
-    sb   $t2, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    addi $t2, $t8, 48   # fraction digit
-    sb   $t2, 0($t5)
-    addi $t5, $t5, 1
-    addi $t6, $t6, 1
-    li   $t2, 10
-    sb   $t2, 0($t5)
-    addi $t6, $t6, 1
-    # write MMSE to file
-    li   $v0, 15
-    move $a0, $s1
-    la   $a1, num_buf
-    move $a2, $t6
-    syscall
-    # close file
-    li   $v0, 16
-    move $a0, $s1
-    syscall
-    # restore registers and return
-    lw   $ra, 20($sp)
-    lw   $s0, 16($sp)
-    lw   $s1, 12($sp)
-    lw   $s2,  8($sp)
-    lw   $s3,  4($sp)
-    lw   $s4,  0($sp)
-    addi $sp, $sp, 24
-    jr   $ra
+	li   $t2, 46    # ASCII for '.'
+	sb   $t2, 0($t5)
+	addi $t5, $t5, 1
+	addi $t6, $t6, 1
+	addi $t2, $t8, 48   # fraction digit
+	sb   $t2, 0($t5)
+	addi $t5, $t5, 1
+	addi $t6, $t6, 1
+	li   $t2, 10
+	sb   $t2, 0($t5)
+	addi $t6, $t6, 1
+
+# write MMSE to file
+li   $v0, 15
+move $a0, $s1
+la   $a1, num_buf
+move $a2, $t6
+syscall
+
+# close file
+li   $v0, 16
+move $a0, $s1
+syscall
+
+# restore registers and return
+lw   $ra, 20($sp)
+lw   $s0, 16($sp)
+lw   $s1, 12($sp)
+lw   $s2, 8($sp)
+lw   $s3, 4($sp)
+lw   $s4, 0($sp)
+addi $sp, $sp, 24
+jr   $ra
 
 # # # Error handler # # #
 size_error:
-    # write "Error: size not match\n" to output.txt
-    li   $v0, 13
-    la   $a0, output_file
-    li   $a1, 1       
-    syscall
-    move $t0, $v0   # fd
-    bltz $t0, print_then_exit
-    # syscall write
-    li   $v0, 15
-    move $a0, $t0   # fd
-    la   $a1, input_size_error
-    li   $a2, 22    # len("Error: size not match\n")
-    syscall
-    # syscall close
-    li   $v0, 16
-    move $a0, $t0
-    syscall
-    j    print_then_exit
+# write "Error: size not match\n" to output.txt
+li   $v0, 13
+la   $a0, output_file
+li   $a1, 1
+syscall
+move $t0, $v0   # fd
+bltz $t0, print_then_exit
+
+# syscall write
+li   $v0, 15
+move $a0, $t0   # fd
+la   $a1, input_size_error
+li   $a2, 22    # len("Error: size not match\n")
+syscall
+
+# syscall close
+li   $v0, 16
+move $a0, $t0
+syscall
+j    print_then_exit
 
 open_error_return:
-    # if open failed, return quietly
-    lw   $ra, 20($sp)
-    lw   $s0, 16($sp)
-    lw   $s1, 12($sp)
-    lw   $s2,  8($sp)
-    lw   $s3,  4($sp)
-    lw   $s4,  0($sp)
-    addi $sp, $sp, 24
-    jr   $ra
+# if open failed, return quietly
+lw   $ra, 20($sp)
+lw   $s0, 16($sp)
+lw   $s1, 12($sp)
+lw   $s2, 8($sp)
+lw   $s3, 4($sp)
+lw   $s4, 0($sp)
+addi $sp, $sp, 24
+jr   $ra
+
